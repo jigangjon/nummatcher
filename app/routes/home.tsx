@@ -1,8 +1,9 @@
 import { createClient } from "~/lib/supabase/server";
 import type { Route } from "./+types/home";
-import { redirect } from "react-router";
+import { redirect, useOutletContext } from "react-router";
 
 export default function Home() {
+  const { user } = useOutletContext();
   return <div>Welcome to Number Matcher!</div>;
 }
 

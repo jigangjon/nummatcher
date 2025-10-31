@@ -11,9 +11,10 @@ export default [
     route("login", "routes/login.tsx"),
     route("signup", "routes/signup.tsx"),
     route("rules", "routes/rules.tsx"),
-    route("play", "routes/play.tsx"),
+    route("create-game", "routes/create-game.tsx"),
     route("game/:gameId", "routes/game.tsx"),
     route("account", "routes/account.tsx"),
+    route("play", "routes/play.tsx"),
   ]),
   route("logout", "routes/logout-handler.tsx"),
 ] satisfies RouteConfig;

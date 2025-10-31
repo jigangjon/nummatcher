@@ -4,6 +4,19 @@ import { Input } from "~/components/ui/input";
 import type { Route } from "./+types/login";
 import { createClient } from "~/lib/supabase/server";
 
+export async function loader({ request }: Route.LoaderArgs) {
+  const { supabase } = createClient(request);
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (user) {
+    return redirect("/");
+  }
+
+  return { user };
+}
+
 export default function LogIn() {
   return (
     <div className="max-w-md mx-auto">
@@ -39,6 +52,10 @@ export async function action({ request }: Route.ActionArgs) {
     email,
     password,
   });
+
+  if (error) {
+    console.error("Login error:", error.message);
+  }
 
   return redirect("/", { headers });
 }

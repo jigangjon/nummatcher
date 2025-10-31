@@ -1,18 +1,9 @@
-import { Form, Link, Outlet } from "react-router";
+import { Form, Link, Outlet, useOutletContext } from "react-router";
 import { Button } from "~/components/ui/button";
 import type { Route } from "./+types/header";
-import { createClient } from "~/lib/supabase/server";
-
-export async function loader({ request }: Route.LoaderArgs) {
-  const { supabase } = createClient(request);
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  return { user };
-}
 
 export default function Header({ loaderData }: Route.ComponentProps) {
-  const { user } = loaderData;
+  const { user } = useOutletContext();
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
       <header className="bg-white shadow p-4 flex items-center space-x-4">
@@ -46,7 +37,7 @@ export default function Header({ loaderData }: Route.ComponentProps) {
         )}
       </header>
       <main className="flex-grow p-6">
-        <Outlet />
+        <Outlet context={{ user }} />
       </main>
     </div>
   );

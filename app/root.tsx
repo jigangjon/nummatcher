@@ -9,6 +9,15 @@ import {
 
 import type { Route } from "./+types/root";
 import "./app.css";
+import { createClient } from "./lib/supabase/server";
+
+export async function loader({ request }: Route.LoaderArgs) {
+  const { supabase } = createClient(request);
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  return { user };
+}
 
 export const links: Route.LinksFunction = () => [
   { rel: "preconnect", href: "https://fonts.googleapis.com" },
@@ -41,8 +50,9 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-export default function App() {
-  return <Outlet />;
+export default function App({ loaderData }: Route.ComponentProps) {
+  const { user } = loaderData;
+  return <Outlet context={{ user }} />;
 }
 
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
