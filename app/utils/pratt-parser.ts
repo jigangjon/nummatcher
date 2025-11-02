@@ -3,35 +3,44 @@
  * https://web.archive.org/web/20150228044653/http://effbot.org/zone/simple-top-down-parsing.htm
  */
 
-interface Token {
+import { MoreMath } from "./more-math";
+
+export interface Token {
   symbol: string;
-  value?: number | string;
+  value?: number;
   lbp: number;
-  nud?(tokenList: Token[]): Token;
-  led?(left: Token, tokenList: Token[]): Token;
+  nud?(tokenList: Token[], currentIndex: number): TokenWithIndex;
+  led?(left: Token, tokenList: Token[], currentIndex: number): TokenWithIndex;
   first?: Token;
   second?: Token;
+  unaryFn?: (a: number) => number;
+  binaryFn?: (a: number, b: number) => number;
 }
 
-type Tokens = Record<string, () => Token>;
+export interface TokenWithIndex {
+  left: Token;
+  nextIndex: number;
+}
 
-function tokenize(input: string, operators: Tokens): Token[] {
-  input = input.toLowerCase().replace(/\s+/g, "");
+export type Tokens = Record<string, () => Token>;
+
+export function tokenize(input: string, operators: Tokens): Token[] {
+  input = input.toLowerCase().replaceAll(/\s+/g, "");
   const tokens: Token[] = [];
   let i = 0;
-  const operatorsSymbols = Object.keys(operators).sort(
+  const operatorSymbols = Object.keys(operators).sort(
     (a, b) => b.length - a.length
   );
   while (i < input.length) {
     const char = input[i];
     if (/\d/.test(char)) {
       let numStr = char;
-      let decimal = false;
+      let decimalAvailable = true;
       i++;
       while (i < input.length) {
         if (input[i] === ".") {
-          if (decimal) break;
-          decimal = true;
+          if (!decimalAvailable) break;
+          decimalAvailable = false;
           numStr += ".";
           i++;
         } else if (/\d/.test(input[i])) {
@@ -45,7 +54,7 @@ function tokenize(input: string, operators: Tokens): Token[] {
       continue;
     }
     let matchedOperator: string | null = null;
-    for (const operatorSymbol of operatorsSymbols) {
+    for (const operatorSymbol of operatorSymbols) {
       if (input.startsWith(operatorSymbol, i)) {
         matchedOperator = operatorSymbol;
         break;
@@ -62,132 +71,322 @@ function tokenize(input: string, operators: Tokens): Token[] {
   return tokens;
 }
 
-var tokenIndex = 0;
-function expression(rbp: number, tokenList: Token[]): Token {
-  let currentIndex = tokenIndex;
-  tokenIndex = tokenIndex + 1;
-  if (!tokenList[currentIndex].nud) {
-    throw new Error(`Unexpected token: ${tokenList[currentIndex].symbol}`);
-  }
-  let left = tokenList[currentIndex].nud(tokenList);
-  while (rbp < tokenList[tokenIndex].lbp) {
-    currentIndex = tokenIndex;
-    tokenIndex = currentIndex + 1;
-    if (!tokenList[currentIndex].led) {
-      throw new Error(`Unexpected token: ${tokenList[currentIndex].symbol}`);
+export function tokenizeRestricted(
+  input: string,
+  operators: Tokens,
+  numbers: number[],
+  concat: boolean,
+  decimal: boolean
+): Token[] {
+  input = input.toLowerCase().replaceAll(/\s+/g, "");
+  const tokens: Token[] = [];
+  let i = 0;
+  const operatorSymbols = Object.keys(operators).sort(
+    (a, b) => b.length - a.length
+  );
+  const availableNumberSymbols = numbers
+    .map((n) => n.toString())
+    .sort((a, b) => b.length - a.length);
+  while (i < input.length) {
+    const char = input[i];
+    if (/\d/.test(char)) {
+      let numStr = "";
+      let decimalAvailable = decimal;
+      let matchedNumber: string;
+      while (true) {
+        matchedNumber = "";
+        for (const [j, numberSymbol] of availableNumberSymbols.entries()) {
+          if (input.startsWith(numberSymbol, i)) {
+            matchedNumber = numberSymbol;
+            availableNumberSymbols.splice(j, 1);
+            i += matchedNumber.length;
+            break;
+          }
+        }
+        if (!matchedNumber) break;
+        numStr += matchedNumber;
+        if (input[i] === ".") {
+          if (!decimalAvailable) break;
+          decimalAvailable = false;
+          numStr += ".";
+          i++;
+          continue;
+        }
+        if (!concat) break;
+      }
+      if (!numStr) throw new Error(`Number ${char} used too many times`);
+      tokens.push(numberToken(numStr));
+      continue;
     }
-    left = tokenList[currentIndex].led(left, tokenList);
+    let matchedOperator: string | null = null;
+    for (const operatorSymbol of operatorSymbols) {
+      if (input.startsWith(operatorSymbol, i)) {
+        matchedOperator = operatorSymbol;
+        i += matchedOperator.length;
+        break;
+      }
+    }
+    if (!matchedOperator) throw new Error(`Symbol ${char} not available`);
+    tokens.push(operators[matchedOperator]());
   }
-  return left;
+  if (availableNumberSymbols[0])
+    throw new Error(`Didn't use number ${availableNumberSymbols[0]}`);
+  tokens.push(endToken());
+  return tokens;
 }
 
-function numberToken(symbol: string): Token {
+export function expressionNud(
+  rbp: number,
+  tokenList: Token[],
+  currentIndex: number
+): TokenWithIndex {
+  const currentToken = tokenList[currentIndex];
+  if (currentToken.symbol === "__end")
+    throw new Error("expression ended unfinished");
+  if (!currentToken.nud) {
+    throw new Error(`Unexpected symbol: ${currentToken.symbol}`);
+  }
+  const { left, nextIndex } = currentToken.nud(tokenList, currentIndex);
+  const nextToken = tokenList[nextIndex];
+  if (rbp >= nextToken.lbp) {
+    return { left, nextIndex };
+  }
+  return expressionLed(rbp, left, tokenList, nextIndex);
+}
+
+export function expressionLed(
+  rbp: number,
+  left: Token,
+  tokenList: Token[],
+  currentIndex: number
+): TokenWithIndex {
+  const currentToken = tokenList[currentIndex];
+  if (rbp >= currentToken.lbp) return { left, nextIndex: currentIndex };
+  if (!currentToken.led) {
+    throw new Error(`Unexpected symbol: ${currentToken.symbol}`);
+  }
+  const { left: newLeft, nextIndex } = currentToken.led(
+    left,
+    tokenList,
+    currentIndex
+  );
+  return expressionLed(rbp, newLeft, tokenList, nextIndex);
+}
+
+export function numberToken(symbol: string): Token {
   return {
     symbol,
-    value: parseFloat(symbol),
+    value: Number.parseFloat(symbol),
     lbp: 0,
-    nud() {
-      return this;
+    nud(tokenList: Token[], currentIndex: number) {
+      return { left: this, nextIndex: currentIndex + 1 };
     },
   };
 }
 
-function operatorToken(
+export function operatorToken(
   symbol: string,
   lbp: number = 0,
-  nud?: (tokenList: Token[]) => Token,
-  led?: (left: Token, tokenList: Token[]) => Token
+  nud?: (tokenList: Token[], currentIndex: number) => TokenWithIndex,
+  led?: (
+    left: Token,
+    tokenList: Token[],
+    currentIndex: number
+  ) => TokenWithIndex,
+  unaryFn?: (a: number) => number,
+  binaryFn?: (a: number, b: number) => number
 ): Token {
   return {
     symbol,
     lbp,
     ...(nud ? { nud } : {}),
     ...(led ? { led } : {}),
+    ...(unaryFn ? { unaryFn } : {}),
+    ...(binaryFn ? { binaryFn } : {}),
   };
 }
 
-function infixLed(bp: number) {
-  function led(this: Token, left: Token, tokenList: Token[]): Token {
+export function infixLed(bp: number) {
+  function led(
+    this: Token,
+    left: Token,
+    tokenList: Token[],
+    currentIndex: number
+  ): TokenWithIndex {
+    const { left: right, nextIndex } = expressionNud(
+      bp,
+      tokenList,
+      currentIndex + 1
+    );
     this.first = left;
-    this.second = expression(bp, tokenList);
-    return this;
+    this.second = right;
+    return { left: this, nextIndex };
   }
   return led;
 }
 
-function prefixNud(bp: number) {
-  function nud(this: Token, tokenList: Token[]): Token {
-    this.first = expression(bp, tokenList);
-    return this;
+export function prefixNud(bp: number) {
+  function nud(
+    this: Token,
+    tokenList: Token[],
+    currentIndex: number
+  ): TokenWithIndex {
+    const { left: right, nextIndex } = expressionNud(
+      bp,
+      tokenList,
+      currentIndex + 1
+    );
+    this.first = right;
+    return { left: this, nextIndex };
   }
   return nud;
 }
 
-function suffixLed() {
-  function led(this: Token, left: Token, tokenList: Token[]): Token {
+export function suffixLed() {
+  function led(
+    this: Token,
+    left: Token,
+    tokenList: Token[],
+    currentIndex: number
+  ): TokenWithIndex {
     this.first = left;
-    return this;
+    return { left: this, nextIndex: currentIndex + 1 };
   }
   return led;
 }
 
-function parenNud() {
-  function nud(this: Token, tokenList: Token[]): Token {
-    const expr = expression(0, tokenList);
-    advance(")", tokenList);
-    return expr;
+export function parenNud() {
+  function nud(
+    this: Token,
+    tokenList: Token[],
+    currentIndex: number
+  ): TokenWithIndex {
+    const { left, nextIndex: parenIndex } = expressionNud(
+      0,
+      tokenList,
+      currentIndex + 1
+    );
+    const nextIndex = assertTokenEqual(")", tokenList, parenIndex);
+    return { left, nextIndex };
   }
   return nud;
 }
 
-function functionNud(arity: 1 | 2) {
-  function nud(this: Token, tokenList: Token[]): Token {
-    advance("(", tokenList);
-    this.first = expression(0, tokenList);
-    if (arity === 2) {
-      advance(",", tokenList);
-      this.second = expression(0, tokenList);
+export function functionNud(arity: 1 | 2) {
+  function nud(
+    this: Token,
+    tokenList: Token[],
+    currentIndex: number
+  ): TokenWithIndex {
+    const firstArgIndex = assertTokenEqual("(", tokenList, currentIndex + 1);
+    let nextIndex;
+    if (arity === 1) {
+      const { left: first, nextIndex: parenIndex } = expressionNud(
+        0,
+        tokenList,
+        firstArgIndex
+      );
+      this.first = first;
+      nextIndex = assertTokenEqual(")", tokenList, parenIndex);
+    } else {
+      const { left: first, nextIndex: commaIndex } = expressionNud(
+        0,
+        tokenList,
+        firstArgIndex
+      );
+      this.first = first;
+      const secondArgIndex = assertTokenEqual(",", tokenList, commaIndex);
+      const { left: second, nextIndex: parenIndex } = expressionNud(
+        0,
+        tokenList,
+        secondArgIndex
+      );
+      this.second = second;
+      nextIndex = assertTokenEqual(")", tokenList, parenIndex);
     }
-    advance(")", tokenList);
-    return this;
+    return { left: this, nextIndex };
   }
   return nud;
 }
 
-function endToken(): Token {
+export function endToken(): Token {
   return {
     symbol: "__end",
     lbp: 0,
   };
 }
 
-function advance(symbol: string, tokenList: Token[]) {
-  if (tokenList[tokenIndex].symbol !== symbol) {
+export function assertTokenEqual(
+  symbol: string,
+  tokenList: Token[],
+  currentIndex: number
+) {
+  if (tokenList[currentIndex].symbol !== symbol) {
     throw new Error(`Expected token: ${symbol}`);
   }
-  tokenIndex++;
+  return currentIndex + 1;
 }
 
-const testExpression1 =
-  "  - 3.1231  ^ - 1   . 2 +   +412.23   4  *2-1\n/+3 - 3.1231 +   +412.23   4  *2-1\n/+3 - 3.1231 +   +412.23   4  *2-1\n/+3 - 3.1231 +   +412.23   4  *2-1\n/+3";
-const testExpression2 = "4^2^3 ";
-const testExpression3 = "sq rt ((3+3) !!!)";
-const testExpression4 = "root(27,3) + P(5,2) - 5c2";
-const ALL_OPERATORS: Tokens = {
-  "+": () => operatorToken("+", 10, prefixNud(20), infixLed(10)),
-  "-": () => operatorToken("-", 10, prefixNud(20), infixLed(10)),
-  "*": () => operatorToken("*", 20, undefined, infixLed(20)),
-  "/": () => operatorToken("/", 20, undefined, infixLed(20)),
-  "^": () => operatorToken("^", 30, undefined, infixLed(29)), // right associative
-  "!": () => operatorToken("!", 50, undefined, suffixLed()),
-  sqrt: () => operatorToken("sqrt", 60, prefixNud(60)),
-  "!!": () => operatorToken("!!", 50, undefined, suffixLed()),
+export function tokensToAST(tokens: Token[]) {
+  const { left } = expressionNud(0, tokens, 0);
+  return left;
+}
+
+export const ALL_OPERATORS: Tokens = {
+  "+": () =>
+    operatorToken(
+      "+",
+      10,
+      prefixNud(20),
+      infixLed(10),
+      (a) => a,
+      (a, b) => a + b
+    ),
+  "-": () =>
+    operatorToken(
+      "-",
+      10,
+      prefixNud(20),
+      infixLed(10),
+      (a) => -a,
+      (a, b) => a - b
+    ),
+  "*": () =>
+    operatorToken("*", 20, undefined, infixLed(20), undefined, (a, b) => a * b),
+  "/": () =>
+    operatorToken("/", 20, undefined, infixLed(20), undefined, (a, b) => a / b),
+  "^": () =>
+    operatorToken(
+      "^",
+      30,
+      undefined,
+      infixLed(29) /* right associative */,
+      undefined,
+      (a, b) => Math.pow(a, b)
+    ),
+  "!": () =>
+    operatorToken("!", 50, undefined, suffixLed(), (a) =>
+      MoreMath.factorial(a)
+    ),
+  sqrt: () =>
+    operatorToken("sqrt", 60, prefixNud(60), undefined, (a) => Math.sqrt(a)),
+  "!!": () =>
+    operatorToken("!!", 50, undefined, suffixLed(), (a) =>
+      MoreMath.multipleFactorial(a, 2)
+    ),
+  root: () =>
+    operatorToken("root", 0, functionNud(2), undefined, undefined, (a, b) =>
+      Math.pow(b, 1 / a)
+    ),
+  p: () =>
+    operatorToken("p", 40, functionNud(2), infixLed(40), undefined, (a, b) =>
+      MoreMath.P(a, b)
+    ),
+  c: () =>
+    operatorToken("c", 40, functionNud(2), infixLed(40), undefined, (a, b) =>
+      MoreMath.C(a, b)
+    ),
   "(": () => operatorToken("(", 200, parenNud()),
   ")": () => operatorToken(")"),
   ",": () => operatorToken(","),
-  root: () => operatorToken("root", 0, functionNud(2)),
-  p: () => operatorToken("p", 40, functionNud(2), infixLed(40)),
-  c: () => operatorToken("c", 40, functionNud(2), infixLed(40)),
 };
-const tokenList = tokenize(testExpression4, ALL_OPERATORS);
-console.log(expression(0, tokenList));
