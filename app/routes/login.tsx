@@ -1,8 +1,10 @@
-import { Form, redirect } from "react-router";
+import { Form, Link, redirect } from "react-router";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import type { Route } from "./+types/login";
 import { createClient } from "~/lib/supabase/server";
+
+// TODO: Keep me logged in
 
 export async function loader({ request }: Route.LoaderArgs) {
   const { supabase } = createClient(request);
@@ -37,6 +39,12 @@ export default function LogIn() {
           Log In with Google
         </Button>
       </Form>
+      <div className="w-full flex justify-center mt-4 text-base">
+        Don't have an account?
+        <Link to="/signup" className="hover:underline ml-1 text-primary">
+          Sign Up
+        </Link>
+      </div>
     </div>
   );
 }

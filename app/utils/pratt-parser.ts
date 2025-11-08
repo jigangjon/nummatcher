@@ -5,6 +5,8 @@
 
 import { MoreMath } from "./more-math";
 
+// have to use all numbers or not
+
 export interface Token {
   symbol: string;
   value?: number;
@@ -364,6 +366,15 @@ export const ALL_OPERATORS: Tokens = {
       undefined,
       (a, b) => Math.pow(a, b)
     ),
+  "**": () =>
+    operatorToken(
+      "^",
+      30,
+      undefined,
+      infixLed(29) /* right associative */,
+      undefined,
+      (a, b) => Math.pow(a, b)
+    ),
   "!": () =>
     operatorToken("!", 50, undefined, suffixLed(), (a) =>
       MoreMath.factorial(a)
@@ -388,5 +399,7 @@ export const ALL_OPERATORS: Tokens = {
     ),
   "(": () => operatorToken("(", 200, parenNud()),
   ")": () => operatorToken(")"),
+  "[": () => operatorToken("(", 200, parenNud()),
+  "]": () => operatorToken(")"),
   ",": () => operatorToken(","),
 };

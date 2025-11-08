@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useOutletContext } from "react-router";
+import { Link, useOutletContext } from "react-router";
 import { Button } from "~/components/ui/button";
 import {
   type GameConfig,
@@ -9,6 +9,7 @@ import {
 } from "~/utils/games";
 import type { Route } from "./+types/play";
 import supabase from "~/lib/supabase/client";
+import { cn } from "~/lib/utils";
 
 export default function Play({ loaderData }: Route.ComponentProps) {
   const [gameList, setGameList] = useState<GameBrief[]>([]);
@@ -86,6 +87,7 @@ export default function Play({ loaderData }: Route.ComponentProps) {
                 game={game}
                 invitationStatus={invitationStatus}
                 hostNickname={game.hostNickname}
+                gameUrl="/game/1"
               />
             </li>
           );
@@ -99,28 +101,40 @@ function GameBrief({
   game,
   invitationStatus,
   hostNickname,
-}: {
+  gameUrl,
+}: Readonly<{
   game: GameConfig;
   invitationStatus: "invited" | "open" | "host";
   hostNickname: string;
-}) {
-  function renderOperators(operators: OperatorSymbol[]) {
-    if (matchDefaultOperators(operators) === 1) return "Basic";
-    if (matchDefaultOperators(operators) === 2) return "Extended";
-    if (matchDefaultOperators(operators) === 3) return "All";
-    return operators.join(", ");
-  }
+  gameUrl: string;
+}>) {
   return (
-    <div
-      className={`flex ${invitationStatus === "invited" ? "bg-yellow-100" : invitationStatus === "host" ? "bg-green-100" : "bg-white"} p-4 mb-4 rounded shadow`}
+    <Link
+      to={gameUrl}
+      className={cn(
+        `flex p-4 mb-4 rounded shadow`,
+        invitationStatus === "invited"
+          ? "bg-yellow-100"
+          : invitationStatus === "host"
+            ? "bg-green-100"
+            : "bg-white"
+      )}
     >
       <div>Host: {hostNickname}</div>
       <div>Rounds: {game.rounds}</div>
       <div>Max Players: {game.maxPlayers}</div>
       <div>Number Set: {game.numberSet.join(", ")}</div>
-      <div>Operators: {renderOperators(game.operators)}</div>
-    </div>
+      <div>Operators: {showOperatorsConfig(game.operators)}</div>
+    </Link>
   );
+}
+
+function showOperatorsConfig(operators: OperatorSymbol[]) {
+  const matchLevel = matchDefaultOperators(operators);
+  if (matchLevel === 1) return "Basic";
+  if (matchLevel === 2) return "Extended";
+  if (matchLevel === 3) return "All";
+  return operators.join(", ");
 }
 
 function computeInvitationStatus(
@@ -129,7 +143,7 @@ function computeInvitationStatus(
 ): { status: "invited" | "open" | "host"; index: number } {
   if (game.hostId === userId) {
     return { status: "host", index: 0 };
-  } else if (game.invitations && game.invitations.includes(userId)) {
+  } else if (game.invitations?.includes(userId)) {
     return { status: "invited", index: 1 };
   } else {
     return { status: "open", index: 2 };

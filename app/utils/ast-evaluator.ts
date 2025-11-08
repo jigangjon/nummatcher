@@ -1,5 +1,6 @@
-// () allowed by default
-// +, -, *, /, !, ^, sqrt, nthroot, concat, !!, P, C, decimal, unary -
+// (), [] allowed by default
+// () and [] are the same, so (3+5] is valid
+// +, -, *, /, !, ^(**), sqrt, nthroot, concat, !!, P, C, decimal, unary -
 // whitespaces ignored, case insensitive
 // sqrt allowed without parentheses or whitespaces (sqrt9)
 // unary - allowed without parentheses (-5)
@@ -11,7 +12,6 @@
 
 // multiplication by juxtaposition to be added later (2(3+4) = 14)
 // floating point precision to be handled later
-// [] and {} to be added later
 // leading decimal point to be added later
 
 import type { Token } from "./pratt-parser";
