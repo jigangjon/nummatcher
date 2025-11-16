@@ -140,13 +140,17 @@ export function tokenizeRestricted(
 export function expressionNud(
   rbp: number,
   tokenList: Token[],
-  currentIndex: number
+  currentIndex: number,
+  unaryMinus = true
 ): TokenWithIndex {
   const currentToken = tokenList[currentIndex];
   if (currentToken.symbol === "__end")
     throw new Error("expression ended unfinished");
   if (!currentToken.nud) {
     throw new Error(`Unexpected symbol: ${currentToken.symbol}`);
+  }
+  if (currentToken.symbol === "-" && !unaryMinus) {
+    throw new Error(`Unary minus "-" not allowed`);
   }
   const { left, nextIndex } = currentToken.nud(tokenList, currentIndex);
   const nextToken = tokenList[nextIndex];
@@ -329,8 +333,8 @@ export function assertTokenEqual(
   return currentIndex + 1;
 }
 
-export function tokensToAST(tokens: Token[]) {
-  const { left } = expressionNud(0, tokens, 0);
+export function tokensToAST(tokens: Token[], unaryMinus = true) {
+  const { left } = expressionNud(0, tokens, 0, unaryMinus);
   return left;
 }
 

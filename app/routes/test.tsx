@@ -1,27 +1,18 @@
-import { evaluateAST } from "~/utils/ast-evaluator";
-import {
-  ALL_OPERATORS,
-  tokenize,
-  tokenizeRestricted,
-  tokensToAST,
-} from "~/utils/pratt-parser";
+import { useRef } from "react";
+import Stopwatch, { type StopwatchHandle } from "~/components/stopwatch";
+import { Button } from "~/components/ui/button";
 
 export default function Test() {
-  try {
-    const tokens = tokenizeRestricted(
-      "1+*2",
-      ALL_OPERATORS,
-      [1, 2],
-      true,
-      false
-    );
-    const ast = tokensToAST(tokens);
-    const result = evaluateAST(ast);
-    console.log("Tokens:", tokens);
-    console.log("AST:", JSON.stringify(ast, null, 2));
-    console.log("Result:", result);
-  } catch (error) {
-    console.log(error);
-  }
-  return <div>Check console for test results.</div>;
+  const stopwatchRef = useRef<StopwatchHandle>(null);
+  return (
+    <>
+      <Stopwatch ref={stopwatchRef} />
+      <Button onClick={() => stopwatchRef.current?.start()}>start</Button>
+      <Button onClick={() => stopwatchRef.current?.pause()}>pause</Button>
+      <Button onClick={() => stopwatchRef.current?.reset()}>reset</Button>
+      <Button onClick={() => alert(stopwatchRef.current?.getTime())}>
+        get time
+      </Button>
+    </>
+  );
 }

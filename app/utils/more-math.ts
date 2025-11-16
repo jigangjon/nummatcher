@@ -24,9 +24,14 @@ function C(n: number, r: number): number {
   return P(n, r) / factorial(r);
 }
 
+function floatEquals(a: number, b: number, epsilon = 1e-6): boolean {
+  return Math.abs(a - b) <= epsilon * Math.max(Math.abs(a), Math.abs(b));
+}
+
 export const MoreMath = {
   factorial,
   multipleFactorial,
   P,
   C,
+  floatEquals,
 };
