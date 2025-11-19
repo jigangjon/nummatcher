@@ -1,18 +1,43 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import Stopwatch, { type StopwatchHandle } from "~/components/stopwatch";
 import { Button } from "~/components/ui/button";
+import { Input } from "~/components/ui/input";
+import { astToString, evaluateAST, simplify } from "~/utils/ast-handlers";
+import {
+  ALL_OPERATOR_TOKENS,
+  tokenizeRestricted,
+  tokensToAST,
+} from "~/utils/pratt-parser";
 
 export default function Test() {
-  const stopwatchRef = useRef<StopwatchHandle>(null);
+  const [expr, setExpr] = useState("");
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      const tokens = tokenizeRestricted(
+        expr,
+        ALL_OPERATOR_TOKENS,
+        [2, 2],
+        true,
+        true
+      );
+      const ast = tokensToAST(tokens, true);
+      const simplified = simplify(ast);
+      const evaluated = evaluateAST(simplified);
+      console.log("Evaluated result:", evaluated);
+      console.log("AST:", ast);
+      console.log("string:", astToString(ast));
+      console.log("Simplified AST:", simplified);
+      setExpr("");
+    }
+  }
   return (
     <>
-      <Stopwatch ref={stopwatchRef} />
-      <Button onClick={() => stopwatchRef.current?.start()}>start</Button>
-      <Button onClick={() => stopwatchRef.current?.pause()}>pause</Button>
-      <Button onClick={() => stopwatchRef.current?.reset()}>reset</Button>
-      <Button onClick={() => alert(stopwatchRef.current?.getTime())}>
-        get time
-      </Button>
+      <Input
+        value={expr}
+        onChange={(e) => setExpr(e.target.value)}
+        onKeyDown={handleKeyDown}
+      />
     </>
   );
 }

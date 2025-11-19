@@ -1,4 +1,4 @@
-import { ALL_OPERATORS, type Tokens } from "./pratt-parser";
+import { ALL_OPERATOR_TOKENS, type Tokens } from "./pratt-parser";
 
 export type GameConfig = {
   hostId: string;
@@ -71,15 +71,15 @@ export function getTokensAndOptions(symbols: OperatorSymbol[]) {
   const operators = Object.fromEntries(
     symbols
       .filter((s) => !SPECIAL_OPERATORS.includes(s))
-      .map((s) => [s, ALL_OPERATORS[s]])
+      .map((s) => [s, ALL_OPERATOR_TOKENS[s]])
   ) as Tokens;
   const tokens = {
     ...operators,
-    "(": ALL_OPERATORS["("],
-    ")": ALL_OPERATORS[")"],
-    "[": ALL_OPERATORS["["],
-    "]": ALL_OPERATORS["]"],
-    ",": ALL_OPERATORS[","],
+    "(": ALL_OPERATOR_TOKENS["("],
+    ")": ALL_OPERATOR_TOKENS[")"],
+    "[": ALL_OPERATOR_TOKENS["["],
+    "]": ALL_OPERATOR_TOKENS["]"],
+    ",": ALL_OPERATOR_TOKENS[","],
   };
   return { tokens, options };
 }

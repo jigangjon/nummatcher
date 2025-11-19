@@ -8,7 +8,7 @@ import {
 } from "~/utils/games";
 import { Input } from "~/components/ui/input";
 import { tokenizeRestricted, tokensToAST } from "~/utils/pratt-parser";
-import { evaluateAST } from "~/utils/ast-evaluator";
+import { evaluateAST } from "~/utils/ast-handlers";
 import { MoreMath } from "~/utils/more-math";
 import Stopwatch, { type StopwatchHandle } from "~/components/stopwatch";
 import supabase from "~/lib/supabase/client";

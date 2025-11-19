@@ -21,6 +21,7 @@ function P(n: number, r: number): number {
 function C(n: number, r: number): number {
   if (n < 0 || r < 0 || r > n || !Number.isInteger(n) || !Number.isInteger(r))
     return Number.NaN;
+  if (r > n / 2) return C(n, n - r);
   return P(n, r) / factorial(r);
 }
 

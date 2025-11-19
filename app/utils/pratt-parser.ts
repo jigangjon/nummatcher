@@ -7,16 +7,24 @@ import { MoreMath } from "./more-math";
 
 // have to use all numbers or not
 
-export interface Token {
+export interface Operator {
+  symbol: string;
+  unaryFn?: (a: number) => number;
+  binaryFn?: (a: number, b: number) => number;
+}
+
+export interface Node {
   symbol: string;
   value?: number;
+  first?: Node;
+  second?: Node;
+  unaryFn?: (a: number) => number;
+  binaryFn?: (a: number, b: number) => number;
+}
+export interface Token extends Node {
   lbp: number;
   nud?(tokenList: Token[], currentIndex: number): TokenWithIndex;
   led?(left: Token, tokenList: Token[], currentIndex: number): TokenWithIndex;
-  first?: Token;
-  second?: Token;
-  unaryFn?: (a: number) => number;
-  binaryFn?: (a: number, b: number) => number;
 }
 
 export interface TokenWithIndex {
@@ -338,7 +346,44 @@ export function tokensToAST(tokens: Token[], unaryMinus = true) {
   return left;
 }
 
-export const ALL_OPERATORS: Tokens = {
+export function numberNode(symbol: string): Node {
+  return {
+    symbol,
+    value: Number.parseFloat(symbol),
+  };
+}
+
+export function generateOperatorNode(
+  symbol: string,
+  first?: Node,
+  second?: Node
+): Node {
+  const operator = ALL_OPERATORS[symbol];
+  if (!operator) {
+    throw new Error(`Unknown operator symbol: ${symbol}`);
+  }
+  return {
+    ...operator,
+    first,
+    second,
+  };
+}
+
+export const ALL_OPERATORS: Record<string, Operator> = {
+  "+": { symbol: "+", unaryFn: (a) => a, binaryFn: (a, b) => a + b },
+  "-": { symbol: "-", unaryFn: (a) => -a, binaryFn: (a, b) => a - b },
+  "*": { symbol: "*", binaryFn: (a, b) => a * b },
+  "/": { symbol: "/", binaryFn: (a, b) => a / b },
+  "^": { symbol: "^", binaryFn: (a, b) => Math.pow(a, b) },
+  "!": { symbol: "!", unaryFn: (a) => MoreMath.factorial(a) },
+  sqrt: { symbol: "sqrt", unaryFn: (a) => Math.sqrt(a) },
+  "!!": { symbol: "!!", unaryFn: (a) => MoreMath.multipleFactorial(a, 2) },
+  root: { symbol: "root", binaryFn: (a, b) => Math.pow(b, 1 / a) },
+  p: { symbol: "p", binaryFn: (a, b) => MoreMath.P(a, b) },
+  c: { symbol: "c", binaryFn: (a, b) => MoreMath.C(a, b) },
+};
+
+export const ALL_OPERATOR_TOKENS: Tokens = {
   "+": () =>
     operatorToken(
       "+",
