@@ -15,9 +15,10 @@
 // leading decimal point to be added later
 // repeated decimal points to be handled later
 
+import type Fraction from "fraction.js";
 import { generateOperatorNode, numberNode, type Node } from "./pratt-parser";
 
-export function evaluateAST(node: Node): number {
+export function evaluateAST(node: Node): Fraction {
   if (node.value) return node.value;
   if (!node.second) {
     if (!node.unaryFn) throw new Error("Invalid unary operation");

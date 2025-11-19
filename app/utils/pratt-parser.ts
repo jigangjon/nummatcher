@@ -3,23 +3,24 @@
  * https://web.archive.org/web/20150228044653/http://effbot.org/zone/simple-top-down-parsing.htm
  */
 
+import Fraction from "fraction.js";
 import { MoreMath } from "./more-math";
 
 // have to use all numbers or not
 
 export interface Operator {
   symbol: string;
-  unaryFn?: (a: number) => number;
-  binaryFn?: (a: number, b: number) => number;
+  unaryFn?: (a: Fraction) => Fraction;
+  binaryFn?: (a: Fraction, b: Fraction) => Fraction;
 }
 
 export interface Node {
   symbol: string;
-  value?: number;
+  value?: Fraction;
   first?: Node;
   second?: Node;
-  unaryFn?: (a: number) => number;
-  binaryFn?: (a: number, b: number) => number;
+  unaryFn?: (a: Fraction) => Fraction;
+  binaryFn?: (a: Fraction, b: Fraction) => Fraction;
 }
 export interface Token extends Node {
   lbp: number;
@@ -190,7 +191,7 @@ export function expressionLed(
 export function numberToken(symbol: string): Token {
   return {
     symbol,
-    value: Number.parseFloat(symbol),
+    value: new Fraction(symbol),
     lbp: 0,
     nud(tokenList: Token[], currentIndex: number) {
       return { left: this, nextIndex: currentIndex + 1 };
@@ -207,8 +208,8 @@ export function operatorToken(
     tokenList: Token[],
     currentIndex: number
   ) => TokenWithIndex,
-  unaryFn?: (a: number) => number,
-  binaryFn?: (a: number, b: number) => number
+  unaryFn?: (a: Fraction) => Fraction,
+  binaryFn?: (a: Fraction, b: Fraction) => Fraction
 ): Token {
   return {
     symbol,
@@ -349,7 +350,7 @@ export function tokensToAST(tokens: Token[], unaryMinus = true) {
 export function numberNode(symbol: string): Node {
   return {
     symbol,
-    value: Number.parseFloat(symbol),
+    value: new Fraction(symbol),
   };
 }
 
@@ -370,17 +371,29 @@ export function generateOperatorNode(
 }
 
 export const ALL_OPERATORS: Record<string, Operator> = {
-  "+": { symbol: "+", unaryFn: (a) => a, binaryFn: (a, b) => a + b },
-  "-": { symbol: "-", unaryFn: (a) => -a, binaryFn: (a, b) => a - b },
-  "*": { symbol: "*", binaryFn: (a, b) => a * b },
-  "/": { symbol: "/", binaryFn: (a, b) => a / b },
-  "^": { symbol: "^", binaryFn: (a, b) => Math.pow(a, b) },
-  "!": { symbol: "!", unaryFn: (a) => MoreMath.factorial(a) },
-  sqrt: { symbol: "sqrt", unaryFn: (a) => Math.sqrt(a) },
-  "!!": { symbol: "!!", unaryFn: (a) => MoreMath.multipleFactorial(a, 2) },
-  root: { symbol: "root", binaryFn: (a, b) => Math.pow(b, 1 / a) },
-  p: { symbol: "p", binaryFn: (a, b) => MoreMath.P(a, b) },
-  c: { symbol: "c", binaryFn: (a, b) => MoreMath.C(a, b) },
+  "+": { symbol: "+", unaryFn: (a) => a, binaryFn: (a, b) => a.add(b) },
+  "-": { symbol: "-", unaryFn: (a) => a.neg(), binaryFn: (a, b) => a.sub(b) },
+  "*": { symbol: "*", binaryFn: (a, b) => a.mul(b) },
+  "/": { symbol: "/", binaryFn: (a, b) => a.div(b) },
+  "^": { symbol: "^", binaryFn: (a, b) => a.pow(b) },
+  "!": {
+    symbol: "!",
+    unaryFn: (a) => new Fraction(MoreMath.factorial(a.valueOf())),
+  },
+  sqrt: { symbol: "sqrt", unaryFn: (a) => a.pow(0.5) },
+  "!!": {
+    symbol: "!!",
+    unaryFn: (a) => new Fraction(MoreMath.multipleFactorial(a.valueOf(), 2)),
+  },
+  root: { symbol: "root", binaryFn: (a, b) => b.pow(new Fraction(1).div(a)) },
+  p: {
+    symbol: "p",
+    binaryFn: (a, b) => new Fraction(MoreMath.P(a.valueOf(), b.valueOf())),
+  },
+  c: {
+    symbol: "c",
+    binaryFn: (a, b) => new Fraction(MoreMath.C(a.valueOf(), b.valueOf())),
+  },
 };
 
 export const ALL_OPERATOR_TOKENS: Tokens = {
@@ -391,7 +404,7 @@ export const ALL_OPERATOR_TOKENS: Tokens = {
       prefixNud(20),
       infixLed(10),
       (a) => a,
-      (a, b) => a + b
+      (a, b) => a.add(b)
     ),
   "-": () =>
     operatorToken(
@@ -399,13 +412,17 @@ export const ALL_OPERATOR_TOKENS: Tokens = {
       10,
       prefixNud(20),
       infixLed(10),
-      (a) => -a,
-      (a, b) => a - b
+      (a) => a.neg(),
+      (a, b) => a.sub(b)
     ),
   "*": () =>
-    operatorToken("*", 20, undefined, infixLed(20), undefined, (a, b) => a * b),
+    operatorToken("*", 20, undefined, infixLed(20), undefined, (a, b) =>
+      a.mul(b)
+    ),
   "/": () =>
-    operatorToken("/", 20, undefined, infixLed(20), undefined, (a, b) => a / b),
+    operatorToken("/", 20, undefined, infixLed(20), undefined, (a, b) =>
+      a.div(b)
+    ),
   "^": () =>
     operatorToken(
       "^",
@@ -413,7 +430,7 @@ export const ALL_OPERATOR_TOKENS: Tokens = {
       undefined,
       infixLed(29) /* right associative */,
       undefined,
-      (a, b) => Math.pow(a, b)
+      (a, b) => a.pow(b)
     ),
   "**": () =>
     operatorToken(
@@ -422,29 +439,47 @@ export const ALL_OPERATOR_TOKENS: Tokens = {
       undefined,
       infixLed(29) /* right associative */,
       undefined,
-      (a, b) => Math.pow(a, b)
+      (a, b) => a.pow(b)
     ),
   "!": () =>
-    operatorToken("!", 50, undefined, suffixLed(), (a) =>
-      MoreMath.factorial(a)
+    operatorToken(
+      "!",
+      50,
+      undefined,
+      suffixLed(),
+      (a) => new Fraction(MoreMath.factorial(a.valueOf()))
     ),
   sqrt: () =>
-    operatorToken("sqrt", 60, prefixNud(60), undefined, (a) => Math.sqrt(a)),
+    operatorToken("sqrt", 60, prefixNud(60), undefined, (a) => a.pow(0.5)),
   "!!": () =>
-    operatorToken("!!", 50, undefined, suffixLed(), (a) =>
-      MoreMath.multipleFactorial(a, 2)
+    operatorToken(
+      "!!",
+      50,
+      undefined,
+      suffixLed(),
+      (a) => new Fraction(MoreMath.multipleFactorial(a.valueOf(), 2))
     ),
   root: () =>
     operatorToken("root", 0, functionNud(2), undefined, undefined, (a, b) =>
-      Math.pow(b, 1 / a)
+      b.pow(new Fraction(1).div(a))
     ),
   p: () =>
-    operatorToken("p", 40, functionNud(2), infixLed(40), undefined, (a, b) =>
-      MoreMath.P(a, b)
+    operatorToken(
+      "p",
+      40,
+      functionNud(2),
+      infixLed(40),
+      undefined,
+      (a, b) => new Fraction(MoreMath.P(a.valueOf(), b.valueOf()))
     ),
   c: () =>
-    operatorToken("c", 40, functionNud(2), infixLed(40), undefined, (a, b) =>
-      MoreMath.C(a, b)
+    operatorToken(
+      "c",
+      40,
+      functionNud(2),
+      infixLed(40),
+      undefined,
+      (a, b) => new Fraction(MoreMath.C(a.valueOf(), b.valueOf()))
     ),
   "(": () => operatorToken("(", 200, parenNud()),
   ")": () => operatorToken(")"),

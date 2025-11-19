@@ -8,10 +8,10 @@ import {
 } from "~/utils/games";
 import { Input } from "~/components/ui/input";
 import { tokenizeRestricted, tokensToAST } from "~/utils/pratt-parser";
-import { evaluateAST } from "~/utils/ast-handlers";
-import { MoreMath } from "~/utils/more-math";
+import { evaluateAST, simplify } from "~/utils/ast-handlers";
 import Stopwatch, { type StopwatchHandle } from "~/components/stopwatch";
 import supabase from "~/lib/supabase/client";
+import Fraction from "fraction.js";
 
 // go to next round if no answer in 2 minutes
 // easy: 1-18, 20-21, 24, 30, 36, 40
@@ -90,8 +90,9 @@ export default function Game({ loaderData }: Route.ComponentProps) {
         options.decimal
       );
       const ast = tokensToAST(tokens, options.unaryMinus);
-      const result = evaluateAST(ast);
-      if (MoreMath.floatEquals(result, target)) {
+      const simplified = simplify(ast);
+      const result = evaluateAST(simplified);
+      if (result.equals(new Fraction(target))) {
         console.log("Correct!");
         (async () => {
           const { data, error } = await supabase
