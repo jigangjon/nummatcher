@@ -7,6 +7,8 @@ import Fraction from "fraction.js";
 import { MoreMath } from "./more-math";
 
 // have to use all numbers or not
+// TODO: use symbol-function dictionary instead of function inside operator class
+// TODO: use arguments list instead of first and second
 
 export interface Operator {
   symbol: string;
@@ -38,10 +40,10 @@ export type Tokens = Record<string, () => Token>;
 export function tokenize(input: string, operators: Tokens): Token[] {
   input = input.toLowerCase().replaceAll(/\s+/g, "");
   const tokens: Token[] = [];
-  let i = 0;
   const operatorSymbols = Object.keys(operators).sort(
     (a, b) => b.length - a.length
   );
+  let i = 0;
   while (i < input.length) {
     const char = input[i];
     if (/\d/.test(char)) {
@@ -257,7 +259,7 @@ export function prefixNud(bp: number) {
   return nud;
 }
 
-export function suffixLed() {
+export function postfixLed() {
   function led(
     this: Token,
     left: Token,
@@ -446,7 +448,7 @@ export const ALL_OPERATOR_TOKENS: Tokens = {
       "!",
       50,
       undefined,
-      suffixLed(),
+      postfixLed(),
       (a) => new Fraction(MoreMath.factorial(a.valueOf()))
     ),
   sqrt: () =>
@@ -456,7 +458,7 @@ export const ALL_OPERATOR_TOKENS: Tokens = {
       "!!",
       50,
       undefined,
-      suffixLed(),
+      postfixLed(),
       (a) => new Fraction(MoreMath.multipleFactorial(a.valueOf(), 2))
     ),
   root: () =>

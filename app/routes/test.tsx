@@ -1,3 +1,4 @@
+import Fraction from "fraction.js";
 import { useRef, useState } from "react";
 import Stopwatch, { type StopwatchHandle } from "~/components/stopwatch";
 import { Button } from "~/components/ui/button";
@@ -11,6 +12,7 @@ import {
 
 export default function Test() {
   const [expr, setExpr] = useState("");
+  const a = new Fraction("1");
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter") {
       e.preventDefault();
