@@ -7,8 +7,7 @@ import { astToString, evaluateAST, simplify } from "~/utils/evaluator";
 import {
   ALL_OPERATOR_SYMBOLS,
   DecimalOptions,
-  tokenizeRestricted,
-  tokensToAST,
+  parse,
 } from "~/utils/pratt-parser";
 
 export default function Test() {
@@ -23,14 +22,14 @@ export default function Test() {
   function handleExpressionKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter") {
       e.preventDefault();
-      const tokens = tokenizeRestricted(
+      const ast = parse(
         expr,
         ALL_OPERATOR_SYMBOLS,
         numbers.split(",").map((n) => parseFloat(n)),
         concat,
-        decimal
+        decimal,
+        unaryMinus
       );
-      const ast = tokensToAST(tokens, unaryMinus);
       console.log("AST:", ast);
       console.log("string:", astToString(ast));
       const simplified = simplify(ast);

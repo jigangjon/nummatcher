@@ -25,6 +25,49 @@ export function operatorNode(symbol: string, args: Node[]): Node {
   };
 }
 
+export const ALL_OPERATOR_SYMBOLS = [
+  "+",
+  "-",
+  "*",
+  "/",
+  "^",
+  "**",
+  "!",
+  "sqrt",
+  "!!",
+  "root",
+  "p",
+  "c",
+  "(",
+  ")",
+  "[",
+  "]",
+  ",",
+];
+
+export const PREFIXES = ["+", "-"];
+export const INFIXES = ["+", "-", "*", "/", "^", "**", "p", "c"];
+export const POSTFIXES = ["!", "!!"];
+export const FUNCTIONS = ["sqrt", "root"];
+
+export enum DecimalOptions {
+  NOT_ALLOWED,
+  NO_LEADING,
+  LEADING,
+}
+
+export function parse(
+  input: string,
+  operators: string[],
+  numbers: number[],
+  concat: boolean,
+  decimal: DecimalOptions,
+  unaryMinus: boolean
+) {
+  const tokens = tokenizeRestricted(input, operators, numbers, concat, decimal);
+  return tokensToAST(tokens, unaryMinus);
+}
+
 interface Token extends Node {
   lbp: number;
   nud?(tokenList: Token[], currentIndex: number): TokenWithIndex;
@@ -72,31 +115,6 @@ function endToken(): Token {
   };
 }
 
-export const ALL_OPERATOR_SYMBOLS = [
-  "+",
-  "-",
-  "*",
-  "/",
-  "^",
-  "**",
-  "!",
-  "sqrt",
-  "!!",
-  "root",
-  "p",
-  "c",
-  "(",
-  ")",
-  "[",
-  "]",
-  ",",
-];
-
-export const PREFIXES = ["+", "-"];
-export const INFIXES = ["+", "-", "*", "/", "^", "**", "p", "c"];
-export const POSTFIXES = ["!", "!!"];
-export const FUNCTIONS = ["sqrt", "root"];
-
 const OPERATOR_TOKEN_MAP: Record<string, () => Token> = {
   "+": () => operatorToken("+", 10, prefixNud(20), infixLed(10)),
   "-": () => operatorToken("-", 10, prefixNud(20), infixLed(10)),
@@ -117,12 +135,6 @@ const OPERATOR_TOKEN_MAP: Record<string, () => Token> = {
   ",": () => operatorToken(","),
 };
 
-export enum DecimalOptions {
-  NOT_ALLOWED,
-  NO_LEADING,
-  LEADING,
-}
-
 function isMulByJuxtaposition(left: string, right: string): boolean {
   const leftCondition =
     /\d$/.test(left) ||
@@ -138,7 +150,7 @@ function isMulByJuxtaposition(left: string, right: string): boolean {
   return leftCondition && rightCondition && notConcat;
 }
 
-export function tokenizeRestricted(
+function tokenizeRestricted(
   input: string,
   operators: string[],
   numbers: number[],
@@ -227,73 +239,14 @@ export function tokenizeRestricted(
   return tokens;
 }
 
-export function tokensToAST(tokens: Token[], unaryMinus = true) {
-  const { left, nextIndex } = expressionNud(0, 0, unaryMinus);
+function tokensToAST(tokens: Token[], unaryMinus = true) {
+  const { left, nextIndex } = expressionNud(0, tokens, 0, unaryMinus);
   if (tokens[nextIndex].symbol !== "__end") {
     throw new Error(
       `Unexpected token ${tokens[nextIndex].symbol} at the end of the expression`
     );
   }
   return left;
-
-  function expressionNud(
-    rbp: number,
-    currentIndex: number,
-    unaryMinus = true
-  ): TokenWithIndex {
-    const currentToken = tokens[currentIndex];
-    if (currentToken.symbol === "__end")
-      throw new Error("expression ended unfinished");
-    if (!currentToken.nud) {
-      throw new Error(`Unexpected symbol: ${currentToken.symbol}`);
-    }
-    if (currentToken.symbol === "-" && !unaryMinus) {
-      throw new Error(`Unary minus "-" not allowed`);
-    }
-    const { left, nextIndex } = currentToken.nud(tokens, currentIndex);
-    const nextToken = tokens[nextIndex];
-    if (rbp >= nextToken.lbp) {
-      return { left, nextIndex };
-    }
-    return expressionLed(rbp, left, nextIndex);
-  }
-
-  function expressionLed(
-    rbp: number,
-    left: Token,
-    currentIndex: number
-  ): TokenWithIndex {
-    const currentToken = tokens[currentIndex];
-    if (rbp >= currentToken.lbp) return { left, nextIndex: currentIndex };
-    if (!currentToken.led) {
-      throw new Error(`Unexpected symbol: ${currentToken.symbol}`);
-    }
-    const { left: newLeft, nextIndex } = currentToken.led(
-      left,
-      tokens,
-      currentIndex
-    );
-    return expressionLed(rbp, newLeft, nextIndex);
-  }
-
-  function assertTokenEqual(symbol: string, currentIndex: number) {
-    if (tokens[currentIndex].symbol !== symbol) {
-      throw new Error(`Expected token: ${symbol}`);
-    }
-    return currentIndex + 1;
-  }
-}
-
-export function parse(
-  input: string,
-  operators: string[],
-  numbers: number[],
-  concat: boolean,
-  decimal: DecimalOptions,
-  unaryMinus = true
-) {
-  const tokens = tokenizeRestricted(input, operators, numbers, concat, decimal);
-  return tokensToAST(tokens, unaryMinus);
 }
 
 function expressionNud(

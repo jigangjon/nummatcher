@@ -7,7 +7,7 @@ import {
   type GameBrief,
 } from "~/utils/games";
 import { Input } from "~/components/ui/input";
-import { tokenizeRestricted, tokensToAST } from "~/utils/pratt-parser";
+import { parse } from "~/utils/pratt-parser";
 import { evaluateAST, simplify } from "~/utils/evaluator";
 import Stopwatch, { type StopwatchHandle } from "~/components/stopwatch";
 import supabase from "~/lib/supabase/client";
@@ -82,14 +82,14 @@ export default function Game({ loaderData }: Route.ComponentProps) {
   }, [round]);
   const handleSubmit = async () => {
     try {
-      const tokens = tokenizeRestricted(
+      const ast = parse(
         answer,
         allowedOperators,
         numbers,
         options.concat,
-        options.decimal
+        options.decimal,
+        options.unaryMinus
       );
-      const ast = tokensToAST(tokens, options.unaryMinus);
       const simplified = simplify(ast);
       const result = evaluateAST(simplified, options.unaryMinus);
       if (result.equals(new Fraction(target))) {
