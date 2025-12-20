@@ -91,7 +91,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
       );
       const ast = tokensToAST(tokens, options.unaryMinus);
       const simplified = simplify(ast);
-      const result = evaluateAST(simplified);
+      const result = evaluateAST(simplified, options.unaryMinus);
       if (result.equals(new Fraction(target))) {
         console.log("Correct!");
         (async () => {

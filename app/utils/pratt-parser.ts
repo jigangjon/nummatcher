@@ -147,10 +147,10 @@ export function tokenizeRestricted(
 ): Token[] {
   input = input.toLowerCase().replaceAll(/\s+/g, "");
   const tokens: Token[] = [];
-  const operatorSymbols = operators.toSorted((a, b) => b.length - a.length);
-  const unusedNumberSymbols = numbers
-    .map((n) => n.toString())
-    .toSorted((a, b) => b.length - a.length);
+  const operatorSymbols = [...operators].sort((a, b) => b.length - a.length);
+  const unusedNumberSymbols = [...numbers.map((n) => n.toString())].sort(
+    (a, b) => b.length - a.length
+  );
 
   let i = 0;
   while (i < input.length) {
@@ -403,31 +403,3 @@ export function postfixLed() {
   }
   return led;
 }
-
-/*
-export const ALL_OPERATORS: Record<string, Operator> = {
-  "+": { symbol: "+", unaryFn: (a) => a, binaryFn: (a, b) => a.add(b) },
-  "-": { symbol: "-", unaryFn: (a) => a.neg(), binaryFn: (a, b) => a.sub(b) },
-  "*": { symbol: "*", binaryFn: (a, b) => a.mul(b) },
-  "/": { symbol: "/", binaryFn: (a, b) => a.div(b) },
-  "^": { symbol: "^", binaryFn: (a, b) => a.pow(b) },
-  "!": {
-    symbol: "!",
-    unaryFn: (a) => new Fraction(MoreMath.factorial(a.valueOf())),
-  },
-  sqrt: { symbol: "sqrt", unaryFn: (a) => a.pow(0.5) },
-  "!!": {
-    symbol: "!!",
-    unaryFn: (a) => new Fraction(MoreMath.multipleFactorial(a.valueOf(), 2)),
-  },
-  root: { symbol: "root", binaryFn: (a, b) => b.pow(new Fraction(1).div(a)) },
-  p: {
-    symbol: "p",
-    binaryFn: (a, b) => new Fraction(MoreMath.P(a.valueOf(), b.valueOf())),
-  },
-  c: {
-    symbol: "c",
-    binaryFn: (a, b) => new Fraction(MoreMath.C(a.valueOf(), b.valueOf())),
-  },
-};
-*/

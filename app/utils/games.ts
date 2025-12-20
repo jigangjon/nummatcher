@@ -1,4 +1,4 @@
-import { OPERATOR_TOKEN_MAP, type Tokens } from "./pratt-parser";
+import { DecimalOptions } from "./pratt-parser";
 
 export type GameConfig = {
   hostId: string;
@@ -28,7 +28,8 @@ export type OperatorSymbol =
   | "!!"
   | "p"
   | "c"
-  | ".";
+  | "."
+  | "leading .";
 
 export const BASIC_OPERATOR_SYMBOLS: OperatorSymbol[] = ["+", "-", "*", "/"];
 export const EXTENDED_OPERATOR_SYMBOLS: OperatorSymbol[] = [
@@ -58,29 +59,24 @@ export const ALL_OPERATOR_SYMBOLS: OperatorSymbol[] = [
   "p",
   "c",
   ".",
+  "leading .",
 ];
 
-export const SPECIAL_OPERATORS = ["concat", ".", "unary -"] as const;
+export const SPECIAL_OPERATORS = ["concat", ".", "unary -"];
 
 export function getTokensAndOptions(symbols: OperatorSymbol[]) {
+  const decimalOption = symbols.includes("leading .")
+    ? DecimalOptions.LEADING
+    : symbols.includes(".")
+      ? DecimalOptions.NO_LEADING
+      : DecimalOptions.NOT_ALLOWED;
   const options = {
     concat: symbols.includes("concat"),
-    decimal: symbols.includes("."),
+    decimal: decimalOption,
     unaryMinus: symbols.includes("unary -"),
   };
-  const operators = Object.fromEntries(
-    symbols
-      .filter((s) => !SPECIAL_OPERATORS.includes(s))
-      .map((s) => [s, OPERATOR_TOKEN_MAP[s]])
-  ) as Tokens;
-  const tokens = {
-    ...operators,
-    "(": OPERATOR_TOKEN_MAP["("],
-    ")": OPERATOR_TOKEN_MAP[")"],
-    "[": OPERATOR_TOKEN_MAP["["],
-    "]": OPERATOR_TOKEN_MAP["]"],
-    ",": OPERATOR_TOKEN_MAP[","],
-  };
+  const operators = symbols.filter((s) => !SPECIAL_OPERATORS.includes(s));
+  const tokens = [...operators, "(", ")", "[", "]", ","];
   return { tokens, options };
 }
 
