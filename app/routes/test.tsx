@@ -7,7 +7,6 @@ import { astToString, evaluateAST, simplify } from "~/utils/evaluator";
 import {
   ALL_OPERATOR_SYMBOLS,
   DecimalOptions,
-  OPERATOR_TOKEN_MAP,
   tokenizeRestricted,
   tokensToAST,
 } from "~/utils/pratt-parser";

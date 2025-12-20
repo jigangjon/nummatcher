@@ -25,18 +25,18 @@ export function operatorNode(symbol: string, args: Node[]): Node {
   };
 }
 
-export interface Token extends Node {
+interface Token extends Node {
   lbp: number;
   nud?(tokenList: Token[], currentIndex: number): TokenWithIndex;
   led?(left: Token, tokenList: Token[], currentIndex: number): TokenWithIndex;
 }
 
-export interface TokenWithIndex {
+interface TokenWithIndex {
   left: Token;
   nextIndex: number;
 }
 
-export function numberToken(symbol: string): Token {
+function numberToken(symbol: string): Token {
   return {
     symbol,
     value: new Fraction(symbol),
@@ -47,7 +47,7 @@ export function numberToken(symbol: string): Token {
   };
 }
 
-export function operatorToken(
+function operatorToken(
   symbol: string,
   lbp: number = 0,
   nud?: (tokenList: Token[], currentIndex: number) => TokenWithIndex,
@@ -65,7 +65,7 @@ export function operatorToken(
   };
 }
 
-export function endToken(): Token {
+function endToken(): Token {
   return {
     symbol: "__end",
     lbp: 0,
@@ -97,7 +97,7 @@ export const INFIXES = ["+", "-", "*", "/", "^", "**", "p", "c"];
 export const POSTFIXES = ["!", "!!"];
 export const FUNCTIONS = ["sqrt", "root"];
 
-export const OPERATOR_TOKEN_MAP: Record<string, () => Token> = {
+const OPERATOR_TOKEN_MAP: Record<string, () => Token> = {
   "+": () => operatorToken("+", 10, prefixNud(20), infixLed(10)),
   "-": () => operatorToken("-", 10, prefixNud(20), infixLed(10)),
   "*": () => operatorToken("*", 20, undefined, infixLed(20)),
@@ -123,7 +123,7 @@ export enum DecimalOptions {
   LEADING,
 }
 
-export function isMulByJuxtaposition(left: string, right: string): boolean {
+function isMulByJuxtaposition(left: string, right: string): boolean {
   const leftCondition =
     /\d$/.test(left) ||
     POSTFIXES.includes(left) ||
@@ -227,6 +227,16 @@ export function tokenizeRestricted(
   return tokens;
 }
 
+export function tokensToAST(tokens: Token[], unaryMinus = true) {
+  const { left, nextIndex } = expressionNud(0, tokens, 0, unaryMinus);
+  if (tokens[nextIndex].symbol !== "__end") {
+    throw new Error(
+      `Unexpected token ${tokens[nextIndex].symbol} at the end of the expression`
+    );
+  }
+  return left;
+}
+
 export function parse(
   input: string,
   operators: string[],
@@ -239,17 +249,7 @@ export function parse(
   return tokensToAST(tokens, unaryMinus);
 }
 
-export function tokensToAST(tokens: Token[], unaryMinus = true) {
-  const { left, nextIndex } = expressionNud(0, tokens, 0, unaryMinus);
-  if (tokens[nextIndex].symbol !== "__end") {
-    throw new Error(
-      `Unexpected token ${tokens[nextIndex].symbol} at the end of the expression`
-    );
-  }
-  return left;
-}
-
-export function expressionNud(
+function expressionNud(
   rbp: number,
   tokenList: Token[],
   currentIndex: number,
@@ -272,7 +272,7 @@ export function expressionNud(
   return expressionLed(rbp, left, tokenList, nextIndex);
 }
 
-export function expressionLed(
+function expressionLed(
   rbp: number,
   left: Token,
   tokenList: Token[],
@@ -291,7 +291,7 @@ export function expressionLed(
   return expressionLed(rbp, newLeft, tokenList, nextIndex);
 }
 
-export function assertTokenEqual(
+function assertTokenEqual(
   symbol: string,
   tokenList: Token[],
   currentIndex: number
@@ -302,7 +302,7 @@ export function assertTokenEqual(
   return currentIndex + 1;
 }
 
-export function prefixNud(bp: number) {
+function prefixNud(bp: number) {
   function nud(
     this: Token,
     tokenList: Token[],
@@ -320,7 +320,7 @@ export function prefixNud(bp: number) {
   return nud;
 }
 
-export function functionNud(arity: number) {
+function functionNud(arity: number) {
   function nud(
     this: Token,
     tokenList: Token[],
@@ -353,7 +353,7 @@ export function functionNud(arity: number) {
   return nud;
 }
 
-export function parenNud() {
+function parenNud() {
   function nud(
     this: Token,
     tokenList: Token[],
@@ -370,7 +370,7 @@ export function parenNud() {
   return nud;
 }
 
-export function infixLed(bp: number) {
+function infixLed(bp: number) {
   function led(
     this: Token,
     left: Token,
@@ -390,7 +390,7 @@ export function infixLed(bp: number) {
   return led;
 }
 
-export function postfixLed() {
+function postfixLed() {
   function led(
     this: Token,
     left: Token,
