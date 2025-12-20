@@ -228,13 +228,60 @@ export function tokenizeRestricted(
 }
 
 export function tokensToAST(tokens: Token[], unaryMinus = true) {
-  const { left, nextIndex } = expressionNud(0, tokens, 0, unaryMinus);
+  const { left, nextIndex } = expressionNud(0, 0, unaryMinus);
   if (tokens[nextIndex].symbol !== "__end") {
     throw new Error(
       `Unexpected token ${tokens[nextIndex].symbol} at the end of the expression`
     );
   }
   return left;
+
+  function expressionNud(
+    rbp: number,
+    currentIndex: number,
+    unaryMinus = true
+  ): TokenWithIndex {
+    const currentToken = tokens[currentIndex];
+    if (currentToken.symbol === "__end")
+      throw new Error("expression ended unfinished");
+    if (!currentToken.nud) {
+      throw new Error(`Unexpected symbol: ${currentToken.symbol}`);
+    }
+    if (currentToken.symbol === "-" && !unaryMinus) {
+      throw new Error(`Unary minus "-" not allowed`);
+    }
+    const { left, nextIndex } = currentToken.nud(tokens, currentIndex);
+    const nextToken = tokens[nextIndex];
+    if (rbp >= nextToken.lbp) {
+      return { left, nextIndex };
+    }
+    return expressionLed(rbp, left, nextIndex);
+  }
+
+  function expressionLed(
+    rbp: number,
+    left: Token,
+    currentIndex: number
+  ): TokenWithIndex {
+    const currentToken = tokens[currentIndex];
+    if (rbp >= currentToken.lbp) return { left, nextIndex: currentIndex };
+    if (!currentToken.led) {
+      throw new Error(`Unexpected symbol: ${currentToken.symbol}`);
+    }
+    const { left: newLeft, nextIndex } = currentToken.led(
+      left,
+      tokens,
+      currentIndex
+    );
+    return expressionLed(rbp, newLeft, nextIndex);
+  }
+
+  function assertTokenEqual(symbol: string, currentIndex: number) {
+    if (tokens[currentIndex].symbol !== symbol) {
+      throw new Error(`Expected token: ${symbol}`);
+    }
+    return currentIndex + 1;
+  }
 }
 
 export function parse(
