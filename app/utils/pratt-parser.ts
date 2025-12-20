@@ -4,26 +4,27 @@
  */
 
 import Fraction from "fraction.js";
-import { MoreMath } from "./more-math";
-
-// have to use all numbers or not
-// TODO: use symbol-function dictionary instead of function inside operator class
-// TODO: use arguments list instead of first and second
-
-export interface Operator {
-  symbol: string;
-  unaryFn?: (a: Fraction) => Fraction;
-  binaryFn?: (a: Fraction, b: Fraction) => Fraction;
-}
 
 export interface Node {
   symbol: string;
   value?: Fraction;
-  first?: Node;
-  second?: Node;
-  unaryFn?: (a: Fraction) => Fraction;
-  binaryFn?: (a: Fraction, b: Fraction) => Fraction;
+  args?: Node[];
 }
+
+export function numberNode(symbol: string): Node {
+  return {
+    symbol,
+    value: new Fraction(symbol),
+  };
+}
+
+export function operatorNode(symbol: string, args: Node[]): Node {
+  return {
+    symbol,
+    args,
+  };
+}
+
 export interface Token extends Node {
   lbp: number;
   nud?(tokenList: Token[], currentIndex: number): TokenWithIndex;
@@ -35,90 +36,162 @@ export interface TokenWithIndex {
   nextIndex: number;
 }
 
-export type Tokens = Record<string, () => Token>;
+export function numberToken(symbol: string): Token {
+  return {
+    symbol,
+    value: new Fraction(symbol),
+    lbp: 0,
+    nud(tokenList: Token[], currentIndex: number) {
+      return { left: this, nextIndex: currentIndex + 1 };
+    },
+  };
+}
 
-export function tokenize(input: string, operators: Tokens): Token[] {
-  input = input.toLowerCase().replaceAll(/\s+/g, "");
-  const tokens: Token[] = [];
-  const operatorSymbols = Object.keys(operators).sort(
-    (a, b) => b.length - a.length
-  );
-  let i = 0;
-  while (i < input.length) {
-    const char = input[i];
-    if (/\d/.test(char)) {
-      let numStr = char;
-      let decimalAvailable = true;
-      i++;
-      while (i < input.length) {
-        if (input[i] === ".") {
-          if (!decimalAvailable) break;
-          decimalAvailable = false;
-          numStr += ".";
-          i++;
-        } else if (/\d/.test(input[i])) {
-          numStr += input[i];
-          i++;
-        } else {
-          break;
-        }
-      }
-      tokens.push(numberToken(numStr));
-      continue;
-    }
-    let matchedOperator: string | null = null;
-    for (const operatorSymbol of operatorSymbols) {
-      if (input.startsWith(operatorSymbol, i)) {
-        matchedOperator = operatorSymbol;
-        break;
-      }
-    }
-    if (matchedOperator) {
-      tokens.push(operators[matchedOperator]());
-      i += matchedOperator.length;
-      continue;
-    }
-    throw new Error(`Unknown symbol: ${char}`);
-  }
-  tokens.push(endToken());
-  return tokens;
+export function operatorToken(
+  symbol: string,
+  lbp: number = 0,
+  nud?: (tokenList: Token[], currentIndex: number) => TokenWithIndex,
+  led?: (
+    left: Token,
+    tokenList: Token[],
+    currentIndex: number
+  ) => TokenWithIndex
+): Token {
+  return {
+    symbol,
+    lbp,
+    ...(nud ? { nud } : {}),
+    ...(led ? { led } : {}),
+  };
+}
+
+export function endToken(): Token {
+  return {
+    symbol: "__end",
+    lbp: 0,
+  };
+}
+
+export const ALL_OPERATOR_SYMBOLS = [
+  "+",
+  "-",
+  "*",
+  "/",
+  "^",
+  "**",
+  "!",
+  "sqrt",
+  "!!",
+  "root",
+  "p",
+  "c",
+  "(",
+  ")",
+  "[",
+  "]",
+  ",",
+];
+
+export const PREFIXES = ["+", "-"];
+export const INFIXES = ["+", "-", "*", "/", "^", "**", "p", "c"];
+export const POSTFIXES = ["!", "!!"];
+export const FUNCTIONS = ["sqrt", "root"];
+
+export const OPERATOR_TOKEN_MAP: Record<string, () => Token> = {
+  "+": () => operatorToken("+", 10, prefixNud(20), infixLed(10)),
+  "-": () => operatorToken("-", 10, prefixNud(20), infixLed(10)),
+  "*": () => operatorToken("*", 20, undefined, infixLed(20)),
+  "/": () => operatorToken("/", 20, undefined, infixLed(20)),
+  "^": () => operatorToken("^", 30, undefined, infixLed(29)), // right associative
+  "**": () => operatorToken("^", 30, undefined, infixLed(29)), // right associative
+  "!": () => operatorToken("!", 50, undefined, postfixLed()),
+  sqrt: () => operatorToken("sqrt", 60, prefixNud(60), undefined),
+  "!!": () => operatorToken("!!", 50, undefined, postfixLed()),
+  root: () => operatorToken("root", 0, functionNud(2), undefined),
+  p: () => operatorToken("p", 40, functionNud(2), infixLed(40)),
+  c: () => operatorToken("c", 40, functionNud(2), infixLed(40)),
+  "(": () => operatorToken("(", 200, parenNud()),
+  ")": () => operatorToken(")"),
+  "[": () => operatorToken("(", 200, parenNud()),
+  "]": () => operatorToken(")"),
+  ",": () => operatorToken(","),
+};
+
+export enum DecimalOptions {
+  NOT_ALLOWED,
+  NO_LEADING,
+  LEADING,
+}
+
+export function isMulByJuxtaposition(left: string, right: string): boolean {
+  const leftCondition =
+    /\d$/.test(left) ||
+    POSTFIXES.includes(left) ||
+    left === ")" ||
+    left === "]";
+  const rightCondition =
+    /^\d/.test(right) ||
+    FUNCTIONS.includes(right) ||
+    right === "(" ||
+    right === "[";
+  const notConcat = !(/[\d\.]$/.test(left) && /^[\d\.]/.test(right));
+  return leftCondition && rightCondition && notConcat;
 }
 
 export function tokenizeRestricted(
   input: string,
-  operators: Tokens,
+  operators: string[],
   numbers: number[],
   concat: boolean,
-  decimal: boolean
+  decimal: DecimalOptions
 ): Token[] {
   input = input.toLowerCase().replaceAll(/\s+/g, "");
   const tokens: Token[] = [];
-  let i = 0;
-  const operatorSymbols = Object.keys(operators).sort(
-    (a, b) => b.length - a.length
-  );
-  const availableNumberSymbols = numbers
+  const operatorSymbols = operators.toSorted((a, b) => b.length - a.length);
+  const unusedNumberSymbols = numbers
     .map((n) => n.toString())
-    .sort((a, b) => b.length - a.length);
+    .toSorted((a, b) => b.length - a.length);
+
+  let i = 0;
   while (i < input.length) {
     const char = input[i];
-    if (/\d/.test(char)) {
+    if (decimal === DecimalOptions.LEADING && char === ".") {
       let numStr = "";
-      let decimalAvailable = decimal;
-      let matchedNumber: string;
+      i++;
       while (true) {
-        matchedNumber = "";
-        for (const [j, numberSymbol] of availableNumberSymbols.entries()) {
+        let matchedNumber = "";
+        for (const [j, numberSymbol] of unusedNumberSymbols.entries()) {
           if (input.startsWith(numberSymbol, i)) {
             matchedNumber = numberSymbol;
-            availableNumberSymbols.splice(j, 1);
+            unusedNumberSymbols.splice(j, 1);
             i += matchedNumber.length;
             break;
           }
         }
         if (!matchedNumber) break;
         numStr += matchedNumber;
-        if (input[i] === ".") {
+        if (!concat) break;
+      }
+      if (!numStr) throw new Error(`Number ${char} used too many times`);
+      tokens.push(numberToken("." + numStr));
+      continue;
+    }
+    if (/\d/.test(char)) {
+      let numStr = "";
+      let decimalAvailable = decimal !== DecimalOptions.NOT_ALLOWED;
+      while (true) {
+        let matchedNumber = "";
+        for (const [j, numberSymbol] of unusedNumberSymbols.entries()) {
+          if (input.startsWith(numberSymbol, i)) {
+            matchedNumber = numberSymbol;
+            unusedNumberSymbols.splice(j, 1);
+            i += matchedNumber.length;
+            break;
+          }
+        }
+        if (!matchedNumber) break;
+        numStr += matchedNumber;
+        if (input.startsWith(".", i)) {
           if (!decimalAvailable) break;
           decimalAvailable = false;
           numStr += ".";
@@ -128,10 +201,13 @@ export function tokenizeRestricted(
         if (!concat) break;
       }
       if (!numStr) throw new Error(`Number ${char} used too many times`);
+      if (isMulByJuxtaposition(tokens.at(-1)?.symbol ?? "", numStr)) {
+        tokens.push(OPERATOR_TOKEN_MAP["*"]());
+      }
       tokens.push(numberToken(numStr));
       continue;
     }
-    let matchedOperator: string | null = null;
+    let matchedOperator = "";
     for (const operatorSymbol of operatorSymbols) {
       if (input.startsWith(operatorSymbol, i)) {
         matchedOperator = operatorSymbol;
@@ -140,12 +216,37 @@ export function tokenizeRestricted(
       }
     }
     if (!matchedOperator) throw new Error(`Symbol ${char} not available`);
-    tokens.push(operators[matchedOperator]());
+    if (isMulByJuxtaposition(tokens.at(-1)?.symbol ?? "", matchedOperator)) {
+      tokens.push(OPERATOR_TOKEN_MAP["*"]());
+    }
+    tokens.push(OPERATOR_TOKEN_MAP[matchedOperator]());
   }
-  if (availableNumberSymbols[0])
-    throw new Error(`Didn't use number ${availableNumberSymbols[0]}`);
+  if (unusedNumberSymbols[0])
+    throw new Error(`Didn't use number ${unusedNumberSymbols[0]}`);
   tokens.push(endToken());
   return tokens;
+}
+
+export function parse(
+  input: string,
+  operators: string[],
+  numbers: number[],
+  concat: boolean,
+  decimal: DecimalOptions,
+  unaryMinus = true
+) {
+  const tokens = tokenizeRestricted(input, operators, numbers, concat, decimal);
+  return tokensToAST(tokens, unaryMinus);
+}
+
+export function tokensToAST(tokens: Token[], unaryMinus = true) {
+  const { left, nextIndex } = expressionNud(0, tokens, 0, unaryMinus);
+  if (tokens[nextIndex].symbol !== "__end") {
+    throw new Error(
+      `Unexpected token ${tokens[nextIndex].symbol} at the end of the expression`
+    );
+  }
+  return left;
 }
 
 export function expressionNud(
@@ -190,56 +291,15 @@ export function expressionLed(
   return expressionLed(rbp, newLeft, tokenList, nextIndex);
 }
 
-export function numberToken(symbol: string): Token {
-  return {
-    symbol,
-    value: new Fraction(symbol),
-    lbp: 0,
-    nud(tokenList: Token[], currentIndex: number) {
-      return { left: this, nextIndex: currentIndex + 1 };
-    },
-  };
-}
-
-export function operatorToken(
+export function assertTokenEqual(
   symbol: string,
-  lbp: number = 0,
-  nud?: (tokenList: Token[], currentIndex: number) => TokenWithIndex,
-  led?: (
-    left: Token,
-    tokenList: Token[],
-    currentIndex: number
-  ) => TokenWithIndex,
-  unaryFn?: (a: Fraction) => Fraction,
-  binaryFn?: (a: Fraction, b: Fraction) => Fraction
-): Token {
-  return {
-    symbol,
-    lbp,
-    ...(nud ? { nud } : {}),
-    ...(led ? { led } : {}),
-    ...(unaryFn ? { unaryFn } : {}),
-    ...(binaryFn ? { binaryFn } : {}),
-  };
-}
-
-export function infixLed(bp: number) {
-  function led(
-    this: Token,
-    left: Token,
-    tokenList: Token[],
-    currentIndex: number
-  ): TokenWithIndex {
-    const { left: right, nextIndex } = expressionNud(
-      bp,
-      tokenList,
-      currentIndex + 1
-    );
-    this.first = left;
-    this.second = right;
-    return { left: this, nextIndex };
+  tokenList: Token[],
+  currentIndex: number
+) {
+  if (tokenList[currentIndex].symbol !== symbol) {
+    throw new Error(`Expected token: ${symbol}`);
   }
-  return led;
+  return currentIndex + 1;
 }
 
 export function prefixNud(bp: number) {
@@ -253,23 +313,44 @@ export function prefixNud(bp: number) {
       tokenList,
       currentIndex + 1
     );
-    this.first = right;
+    this.args = [];
+    this.args.push(right);
     return { left: this, nextIndex };
   }
   return nud;
 }
 
-export function postfixLed() {
-  function led(
+export function functionNud(arity: number) {
+  function nud(
     this: Token,
-    left: Token,
     tokenList: Token[],
     currentIndex: number
   ): TokenWithIndex {
-    this.first = left;
-    return { left: this, nextIndex: currentIndex + 1 };
+    this.args = [];
+    let nextIndex = assertTokenEqual("(", tokenList, currentIndex + 1);
+    if (arity === 0) {
+      nextIndex = assertTokenEqual(")", tokenList, nextIndex);
+      return { left: this, nextIndex };
+    }
+    for (let _ = 0; _ < arity - 1; _++) {
+      const { left, nextIndex: commaIndex } = expressionNud(
+        0,
+        tokenList,
+        nextIndex
+      );
+      this.args.push(left);
+      nextIndex = assertTokenEqual(",", tokenList, commaIndex);
+    }
+    const { left: left, nextIndex: commaIndex } = expressionNud(
+      0,
+      tokenList,
+      nextIndex
+    );
+    this.args.push(left);
+    nextIndex = assertTokenEqual(")", tokenList, commaIndex);
+    return { left: this, nextIndex };
   }
-  return led;
+  return nud;
 }
 
 export function parenNud() {
@@ -289,89 +370,41 @@ export function parenNud() {
   return nud;
 }
 
-export function functionNud(arity: 1 | 2) {
-  function nud(
+export function infixLed(bp: number) {
+  function led(
     this: Token,
+    left: Token,
     tokenList: Token[],
     currentIndex: number
   ): TokenWithIndex {
-    const firstArgIndex = assertTokenEqual("(", tokenList, currentIndex + 1);
-    let nextIndex;
-    if (arity === 1) {
-      const { left: first, nextIndex: parenIndex } = expressionNud(
-        0,
-        tokenList,
-        firstArgIndex
-      );
-      this.first = first;
-      nextIndex = assertTokenEqual(")", tokenList, parenIndex);
-    } else {
-      const { left: first, nextIndex: commaIndex } = expressionNud(
-        0,
-        tokenList,
-        firstArgIndex
-      );
-      this.first = first;
-      const secondArgIndex = assertTokenEqual(",", tokenList, commaIndex);
-      const { left: second, nextIndex: parenIndex } = expressionNud(
-        0,
-        tokenList,
-        secondArgIndex
-      );
-      this.second = second;
-      nextIndex = assertTokenEqual(")", tokenList, parenIndex);
-    }
+    const { left: right, nextIndex } = expressionNud(
+      bp,
+      tokenList,
+      currentIndex + 1
+    );
+    this.args = [];
+    this.args.push(left);
+    this.args.push(right);
     return { left: this, nextIndex };
   }
-  return nud;
+  return led;
 }
 
-export function endToken(): Token {
-  return {
-    symbol: "__end",
-    lbp: 0,
-  };
-}
-
-export function assertTokenEqual(
-  symbol: string,
-  tokenList: Token[],
-  currentIndex: number
-) {
-  if (tokenList[currentIndex].symbol !== symbol) {
-    throw new Error(`Expected token: ${symbol}`);
+export function postfixLed() {
+  function led(
+    this: Token,
+    left: Token,
+    tokenList: Token[],
+    currentIndex: number
+  ): TokenWithIndex {
+    this.args = [];
+    this.args.push(left);
+    return { left: this, nextIndex: currentIndex + 1 };
   }
-  return currentIndex + 1;
+  return led;
 }
 
-export function tokensToAST(tokens: Token[], unaryMinus = true) {
-  const { left } = expressionNud(0, tokens, 0, unaryMinus);
-  return left;
-}
-
-export function numberNode(symbol: string): Node {
-  return {
-    symbol,
-    value: new Fraction(symbol),
-  };
-}
-
-export function generateOperatorNode(
-  symbol: string,
-  first?: Node,
-  second?: Node
-): Node {
-  const operator = ALL_OPERATORS[symbol];
-  if (!operator) {
-    throw new Error(`Unknown operator symbol: ${symbol}`);
-  }
-  return {
-    ...operator,
-    first,
-    second,
-  };
-}
-
+/*
 export const ALL_OPERATORS: Record<string, Operator> = {
   "+": { symbol: "+", unaryFn: (a) => a, binaryFn: (a, b) => a.add(b) },
   "-": { symbol: "-", unaryFn: (a) => a.neg(), binaryFn: (a, b) => a.sub(b) },
@@ -397,95 +430,4 @@ export const ALL_OPERATORS: Record<string, Operator> = {
     binaryFn: (a, b) => new Fraction(MoreMath.C(a.valueOf(), b.valueOf())),
   },
 };
-
-export const ALL_OPERATOR_TOKENS: Tokens = {
-  "+": () =>
-    operatorToken(
-      "+",
-      10,
-      prefixNud(20),
-      infixLed(10),
-      (a) => a,
-      (a, b) => a.add(b)
-    ),
-  "-": () =>
-    operatorToken(
-      "-",
-      10,
-      prefixNud(20),
-      infixLed(10),
-      (a) => a.neg(),
-      (a, b) => a.sub(b)
-    ),
-  "*": () =>
-    operatorToken("*", 20, undefined, infixLed(20), undefined, (a, b) =>
-      a.mul(b)
-    ),
-  "/": () =>
-    operatorToken("/", 20, undefined, infixLed(20), undefined, (a, b) =>
-      a.div(b)
-    ),
-  "^": () =>
-    operatorToken(
-      "^",
-      30,
-      undefined,
-      infixLed(29) /* right associative */,
-      undefined,
-      (a, b) => a.pow(b)
-    ),
-  "**": () =>
-    operatorToken(
-      "^",
-      30,
-      undefined,
-      infixLed(29) /* right associative */,
-      undefined,
-      (a, b) => a.pow(b)
-    ),
-  "!": () =>
-    operatorToken(
-      "!",
-      50,
-      undefined,
-      postfixLed(),
-      (a) => new Fraction(MoreMath.factorial(a.valueOf()))
-    ),
-  sqrt: () =>
-    operatorToken("sqrt", 60, prefixNud(60), undefined, (a) => a.pow(0.5)),
-  "!!": () =>
-    operatorToken(
-      "!!",
-      50,
-      undefined,
-      postfixLed(),
-      (a) => new Fraction(MoreMath.multipleFactorial(a.valueOf(), 2))
-    ),
-  root: () =>
-    operatorToken("root", 0, functionNud(2), undefined, undefined, (a, b) =>
-      b.pow(new Fraction(1).div(a))
-    ),
-  p: () =>
-    operatorToken(
-      "p",
-      40,
-      functionNud(2),
-      infixLed(40),
-      undefined,
-      (a, b) => new Fraction(MoreMath.P(a.valueOf(), b.valueOf()))
-    ),
-  c: () =>
-    operatorToken(
-      "c",
-      40,
-      functionNud(2),
-      infixLed(40),
-      undefined,
-      (a, b) => new Fraction(MoreMath.C(a.valueOf(), b.valueOf()))
-    ),
-  "(": () => operatorToken("(", 200, parenNud()),
-  ")": () => operatorToken(")"),
-  "[": () => operatorToken("(", 200, parenNud()),
-  "]": () => operatorToken(")"),
-  ",": () => operatorToken(","),
-};
+*/

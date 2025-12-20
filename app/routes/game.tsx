@@ -8,7 +8,7 @@ import {
 } from "~/utils/games";
 import { Input } from "~/components/ui/input";
 import { tokenizeRestricted, tokensToAST } from "~/utils/pratt-parser";
-import { evaluateAST, simplify } from "~/utils/ast-handlers";
+import { evaluateAST, simplify } from "~/utils/evaluator";
 import Stopwatch, { type StopwatchHandle } from "~/components/stopwatch";
 import supabase from "~/lib/supabase/client";
 import Fraction from "fraction.js";
