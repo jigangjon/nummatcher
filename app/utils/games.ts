@@ -90,3 +90,12 @@ export function matchDefaultOperators(operators: OperatorSymbol[]) {
 function arraysEqual(a: any[], b: any[]) {
   return a.length === b.length && a.every((val, index) => val === b[index]);
 }
+
+export function getAnonymousPlayerId() {
+  let id = localStorage.getItem("anonymous-player-id");
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem("anonymous-player-id", id);
+  }
+  return id;
+}

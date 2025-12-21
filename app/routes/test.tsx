@@ -9,6 +9,10 @@ import {
   DecimalOptions,
   parse,
 } from "~/utils/pratt-parser";
+import type { Route } from "./+types/test";
+import { authMiddleware } from "~/middleware/auth";
+
+export const middleware: Route.MiddlewareFunction[] = [authMiddleware];
 
 export default function Test() {
   const [numbers, setNumbers] = useState("");

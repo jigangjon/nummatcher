@@ -4,7 +4,6 @@ import {
   ALL_OPERATOR_SYMBOLS,
   BASIC_OPERATOR_SYMBOLS,
   EXTENDED_OPERATOR_SYMBOLS,
-  getAnonymousPlayerId,
   getTokensAndOptions,
   matchDefaultOperators,
   type GameBrief,
@@ -20,43 +19,9 @@ import { Button } from "~/components/ui/button";
 import type { RealtimeChannel } from "@supabase/supabase-js";
 
 // TODO: prevent fake timers
-// TODO: server control instead of host control
 
 type GameInfo = GameBrief & {
   gameId: string;
-};
-
-type SkipRoundData = {
-  currentRound: number;
-  target: number;
-  numbers: number[];
-  complexity: number;
-};
-
-type NewRoundData = {
-  newRound: number;
-  target: number;
-  numbers: number[];
-  complexity: number;
-};
-
-type AnswerSubmitData = {
-  submitterId: string;
-  answer: string;
-  time: number;
-};
-
-type NotifyWrongAnswerData = {
-  submitterId: string;
-  answer: string;
-  value?: Fraction;
-  error?: string;
-};
-
-type RealtimeGameState = {
-  numbers: number[];
-  target: number;
-  round: number;
 };
 
 export async function loader({}: Route.LoaderArgs) {
@@ -83,234 +48,46 @@ export default function Game({ loaderData }: Route.ComponentProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const stopwatchRef = useRef<StopwatchHandle>(null);
   const gameChannelRef = useRef<RealtimeChannel | null>(null);
-  const currentPlayerRef = useRef("");
-  const gameStateRef = useRef<RealtimeGameState>({
-    numbers: [],
-    target: 0,
-    round: 0,
-  });
 
   const SKIP_ROUND_EVENT = "skip-round";
   const NEW_ROUND_EVENT = "new-round";
-  const ANSWER_SUBMIT_EVENT = "answer-submit";
-  const NOTIFY_WRONG_ANSWER_EVENT = "notify-wrong-answer";
-  const GAME_OVER_EVENT = "game-over";
+  const ANSWER_SUBMITTED_EVENT = "answer-submitted";
+  const TELL_WRONG_ANSWER_EVENT = "tell-wrong-answer";
+
+  useEffect(() => {
+    const gameChannel = supabase.channel(`game:${game.gameId}`);
+    gameChannelRef.current = gameChannel;
+
+    gameChannel
+      .on("broadcast", { event: SKIP_ROUND_EVENT }, (payload) => {
+        console.log("Received round reset event:", payload);
+      })
+      .subscribe();
+  }, []);
 
   const { tokens: allowedOperators, options } = getTokensAndOptions(
     game.operators
   );
-
-  function getNewRoundData() {
-    if (matchDefaultOperators(game.operators) === 1) {
-      const randomCombination =
-        precomputedBasicCombinations[
-          Math.floor(Math.random() * precomputedBasicCombinations.length)
-        ];
-      const newNumbers = randomCombination.slice(0, 4);
-      const newTarget = randomCombination[4];
-      const newComplexity = randomCombination[5];
-      return { newNumbers, newTarget, newComplexity };
-    }
-    const newNumbers = game.numberSet.map(
-      (n) => Math.floor(Math.random() * n) + 1
-    );
-    const newTarget = Math.floor(Math.random() * 100) + 1;
-    const newComplexity = 0;
-    return { newNumbers, newTarget, newComplexity };
+  function calculatePoints(complexity: number) {
+    if (complexity === 1) return 5;
+    if (complexity === 2) return 10;
+    if (complexity === 3) return 20;
+    return 0;
   }
-
-  useEffect(() => {
-    const anonymousPlayerId = getAnonymousPlayerId();
-    currentPlayerRef.current = anonymousPlayerId;
-
-    const gameChannel = supabase.channel(`game:${game.gameId}`, {
-      config: {
-        broadcast: { self: true },
-      },
-    });
-    gameChannelRef.current = gameChannel;
-
-    gameChannel
-      .on("broadcast", { event: SKIP_ROUND_EVENT }, (data) => {
-        console.log("Received skip round event:", data);
-        handleSkipRound(data.payload);
-      })
-      .subscribe();
-
-    gameChannel
-      .on("broadcast", { event: NEW_ROUND_EVENT }, (data) => {
-        console.log("Received new round event:", data);
-        handleNewRound(data.payload);
-      })
-      .subscribe();
-
-    gameChannel
-      .on("broadcast", { event: ANSWER_SUBMIT_EVENT }, (data) => {
-        console.log("Received answer submit event:", data);
-        handleAnswerSubmit(data.payload);
-      })
-      .subscribe();
-
-    gameChannel
-      .on("broadcast", { event: NOTIFY_WRONG_ANSWER_EVENT }, (data) => {
-        console.log("Received notify wrong answer event:", data);
-        handleNotifyWrongAnswer(data.payload);
-      })
-      .subscribe();
-
-    gameChannel
-      .on("broadcast", { event: GAME_OVER_EVENT }, (data) => {
-        console.log("Received game over event:", data);
-        handleGameOver();
-        stopwatchRef.current?.pause();
-      })
-      .subscribe();
-
-    return () => {
-      gameChannel.unsubscribe();
-    };
-  }, []);
-
-  useEffect(() => {
-    gameStateRef.current = { numbers, target, round };
-  }, [numbers, target, round]);
-
-  function handleSkipRound(data: SkipRoundData) {
-    console.log("Round skipped via event");
-    const { currentRound, target, numbers, complexity } = data;
-    resetRound(currentRound, target, numbers, complexity);
-  }
-  function handleNewRound(data: NewRoundData) {
-    console.log("New round started via event");
-    const { newRound, target, numbers, complexity } = data;
-    resetRound(newRound, target, numbers, complexity);
-  }
-  function handleAnswerSubmit(data: AnswerSubmitData) {
-    if (currentPlayerRef.current !== game.hostId) return;
-    const { numbers, target, round } = gameStateRef.current;
-    const { submitterId, answer, time } = data;
-    console.log("numbers:", numbers);
-    try {
-      const ast = parse(
-        answer,
-        allowedOperators,
-        numbers,
-        options.concat,
-        options.decimal,
-        options.unaryMinus
-      );
-      const simplified = simplify(ast);
-      const result = evaluateAST(simplified, options.unaryMinus);
-      if (result.equals(new Fraction(target))) {
-        console.log("Correct!");
-        (async () => {
-          const { data, error } = await supabase
-            .from("num-match-test-history")
-            .insert({
-              operators: game.operators,
-              number_range: game.numberSet,
-              round,
-              target,
-              numbers,
-              answer,
-              result: "correct",
-              time_taken_ms: time,
-            });
-          if (error) {
-            console.log("Error saving result:", error);
-          } else {
-            console.log("Result saved:", data);
-          }
-        })();
-        if (round === game.rounds) {
-          console.log("Game over!");
-          gameChannelRef.current?.send({
-            type: "broadcast",
-            event: GAME_OVER_EVENT,
-            payload: {},
-          });
-          return;
-        }
-        const { newNumbers, newTarget, newComplexity } = getNewRoundData();
-        gameChannelRef.current?.send({
-          type: "broadcast",
-          event: NEW_ROUND_EVENT,
-          payload: {
-            newRound: round + 1,
-            target: newTarget,
-            numbers: newNumbers,
-            complexity: newComplexity,
-          },
-        });
-      } else {
-        gameChannelRef.current?.send({
-          type: "broadcast",
-          event: NOTIFY_WRONG_ANSWER_EVENT,
-          payload: {
-            submitterId,
-            answer,
-            value: result,
-            error: undefined,
-          },
-        });
-        console.log("Incorrect. Result:", result);
-      }
-    } catch (error) {
+  function resetRound() {
+    if (stopwatchRef.current) {
+      const time = stopwatchRef.current.getTime();
+      stopwatchRef.current.reset();
+      stopwatchRef.current.start();
+      console.log("Stopwatch reset and started at time:", time);
       gameChannelRef.current?.send({
         type: "broadcast",
-        event: NOTIFY_WRONG_ANSWER_EVENT,
+        event: SKIP_ROUND_EVENT,
         payload: {
-          submitterId,
-          answer,
-          value: undefined,
-          error: (error as Error).message,
+          time,
+          message: "Round has been reset",
         },
       });
-      console.log("Error evaluating expression:", error);
-    }
-  }
-  function handleNotifyWrongAnswer(data: NotifyWrongAnswerData) {
-    const { submitterId, answer, value, error } = data;
-    if (submitterId !== currentPlayerRef.current) return;
-    if (error) {
-      console.log(`Error evaluating expression "${answer}":`, error);
-      return;
-    }
-    console.log(
-      `You submitted wrong answer "${answer}", evaluated to ${value}`
-    );
-  }
-  function handleGameOver() {
-    console.log("Game over handled via event");
-  }
-  function resetRound(
-    round: number,
-    target: number,
-    numbers: number[],
-    complexity: number
-  ) {
-    setRound(round);
-    setTarget(target);
-    setNumbers(numbers);
-    setPoints(calculatePoints(complexity));
-    setAnswer("");
-    if (stopwatchRef.current) {
-      const time = stopwatchRef.current.getTime();
-      stopwatchRef.current.reset();
-      stopwatchRef.current.start();
-      console.log("Stopwatch reset and started at time:", time);
-    }
-    if (inputRef.current) {
-      inputRef.current.focus();
-    }
-  }
-  /*
-  function resetRound1() {
-    if (stopwatchRef.current) {
-      const time = stopwatchRef.current.getTime();
-      stopwatchRef.current.reset();
-      stopwatchRef.current.start();
-      console.log("Stopwatch reset and started at time:", time);
     }
     if (inputRef.current) {
       inputRef.current.focus();
@@ -330,7 +107,6 @@ export default function Game({ loaderData }: Route.ComponentProps) {
     setNumbers(game.numberSet.map((n) => Math.floor(Math.random() * n) + 1));
     setAnswer("");
   }
-    */
   useEffect(() => {
     if (initialTimer > 0) {
       const timer = setTimeout(() => {
@@ -338,39 +114,14 @@ export default function Game({ loaderData }: Route.ComponentProps) {
       }, 1000);
       return () => clearTimeout(timer);
     } else {
-      const { newNumbers, newTarget, newComplexity } = getNewRoundData();
-      gameChannelRef.current?.send({
-        type: "broadcast",
-        event: NEW_ROUND_EVENT,
-        payload: {
-          newRound: 1,
-          target: newTarget,
-          numbers: newNumbers,
-          complexity: newComplexity,
-        },
-      });
+      setRound(1);
     }
   }, [initialTimer]);
-  /*
   useEffect(() => {
     if (round === 0) return;
-    setTimeout(() => resetRound1(), 0);
+    setTimeout(() => resetRound(), 0);
   }, [round]);
-  */
-  function submitAnswer() {
-    const currentTime = stopwatchRef.current?.getTime() ?? 0;
-    gameChannelRef.current?.send({
-      type: "broadcast",
-      event: ANSWER_SUBMIT_EVENT,
-      payload: {
-        submitterId: currentPlayerRef.current,
-        answer,
-        time: currentTime,
-      },
-    });
-  }
-  /*
-  const handleSubmit1 = async () => {
+  const handleSubmit = async () => {
     try {
       const ast = parse(
         answer,
@@ -416,8 +167,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
       console.log("Error evaluating expression:", error);
     }
   };
-  */
-  async function requestSkip() {
+  const requestSkip = async () => {
     console.log("Round skipped");
     (async () => {
       const { data, error } = await supabase
@@ -437,22 +187,12 @@ export default function Game({ loaderData }: Route.ComponentProps) {
         console.log("Result saved:", data);
       }
     })();
-    const { newNumbers, newTarget, newComplexity } = getNewRoundData();
-    gameChannelRef.current?.send({
-      type: "broadcast",
-      event: SKIP_ROUND_EVENT,
-      payload: {
-        currentRound: round,
-        target: newTarget,
-        numbers: newNumbers,
-        complexity: newComplexity,
-      },
-    });
-  }
+    resetRound();
+  };
   const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       e.preventDefault();
-      submitAnswer();
+      handleSubmit();
     } else if (e.key === "Tab") {
       e.preventDefault();
       requestSkip();
@@ -501,7 +241,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
       />
       <div className="flex w-full justify-start gap-2">
         <Button
-          onClick={submitAnswer}
+          onClick={handleSubmit}
           className="bg-background-reverse text-text-reverse hover:bg-background-reverse hover:opacity-90 hover:cursor-pointer active:opacity-80"
         >
           Submit Answer
@@ -609,11 +349,4 @@ function distributeIntoRows<T>(
   }
 
   return result;
-}
-
-function calculatePoints(complexity: number) {
-  if (complexity === 1) return 5;
-  if (complexity === 2) return 10;
-  if (complexity === 3) return 20;
-  return 0;
 }

@@ -3,6 +3,10 @@ import { Input } from "~/components/ui/input";
 import type { Route } from "./+types/signup";
 import { Button } from "~/components/ui/button";
 import { createClient } from "~/lib/supabase/server";
+import { userContext } from "~/context";
+import { authMiddleware } from "~/middleware/auth";
+
+export const middleware: Route.MiddlewareFunction[] = [authMiddleware];
 
 export async function loader({ request }: Route.LoaderArgs) {
   const { supabase } = createClient(request);

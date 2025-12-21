@@ -14,7 +14,12 @@ import { cn } from "~/lib/utils";
 export default function Play({ loaderData }: Route.ComponentProps) {
   const [gameList, setGameList] = useState<GameBrief[]>([]);
   const { user } = useOutletContext();
-  if (!user) return <></>;
+  if (!user)
+    return (
+      <button className="bg-background border-2 border-border">
+        <Link to="/create-game">Create Anonymous Game</Link>
+      </button>
+    );
   const sortedGames = useMemo(
     () =>
       [...gameList].sort((game1, game2) => {

@@ -184,7 +184,10 @@ function tokenizeRestricted(
         numStr += matchedNumber;
         if (!concat) break;
       }
-      if (!numStr) throw new Error(`Number ${char} used too many times`);
+      if (!numStr)
+        throw new Error(
+          `Number ${char} used too many times, numbers: ${numbers}`
+        );
       tokens.push(numberToken("." + numStr));
       continue;
     }
@@ -212,7 +215,10 @@ function tokenizeRestricted(
         }
         if (!concat) break;
       }
-      if (!numStr) throw new Error(`Number ${char} used too many times`);
+      if (!numStr)
+        throw new Error(
+          `Number ${char} used too many times, numbers: ${numbers}`
+        );
       if (isMulByJuxtaposition(tokens.at(-1)?.symbol ?? "", numStr)) {
         tokens.push(OPERATOR_TOKEN_MAP["*"]());
       }
