@@ -26,8 +26,12 @@ body {
   --color-background-dark: var(--background-dark);
   --color-background: var(--background);
   --color-background-light: var(--background-light);
+  --color-background-reverse-dark: var(--background-reverse-dark);
+  --color-background-reverse: var(--background-reverse);
+  --color-background-reverse-light: var(--background-reverse-light);
   --color-text: var(--text);
   --color-text-muted: var(--text-muted);
+  --color-text-reverse: var(--text-reverse);
   --color-highlight: var(--highlight);
   --color-border: var(--border);
   --color-border-muted: var(--border-muted);
@@ -45,8 +49,12 @@ body {
   --background-dark: oklch(0.92 0 0);
   --background: oklch(0.96 0 0);
   --background-light: oklch(1 0 0);
+  --background-reverse-dark: oklch(0.1 0 0);
+  --background-reverse: oklch(0.15 0 0);
+  --background-reverse-light: oklch(0.2 0 0);
   --text: oklch(0.15 0 0);
   --text-muted: oklch(0.4 0 0);
+  --text-reverse: oklch(0.96 0 0);
   --highlight: oklch(1 0 0);
   --border: oklch(0.6 0 0);
   --border-muted: oklch(0.7 0 0);
@@ -63,8 +71,12 @@ body {
   --background-dark: oklch(0.1 0 0);
   --background: oklch(0.15 0 0);
   --background-light: oklch(0.2 0 0);
+  --background-reverse-dark: oklch(0.92 0 0);
+  --background-reverse: oklch(0.96 0 0);
+  --background-reverse-light: oklch(1 0 0);
   --text: oklch(0.96 0 0);
   --text-muted: oklch(0.76 0 0);
+  --text-reverse: oklch(0.15 0 0);
   --highlight: oklch(0.5 0 0);
   --border: oklch(0.4 0 0);
   --border-muted: oklch(0.3 0 0);

@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import type { Route } from "./+types/game";
 import {
   ALL_OPERATOR_SYMBOLS,
+  BASIC_OPERATOR_SYMBOLS,
   EXTENDED_OPERATOR_SYMBOLS,
   getTokensAndOptions,
+  matchDefaultOperators,
   type GameBrief,
 } from "~/utils/games";
 import { Input } from "~/components/ui/input";
@@ -12,13 +14,8 @@ import { evaluateAST, simplify } from "~/utils/evaluator";
 import Stopwatch, { type StopwatchHandle } from "~/components/stopwatch";
 import supabase from "~/lib/supabase/client";
 import Fraction from "fraction.js";
-
-// go to next round if no answer in 2 minutes
-// easy: 1-18, 20-21, 24, 30, 36, 40
-// medium: 19, 22, 25, 27-28, 32, 35, 42, 45, 48, 56, 60, 72
-// hard: 23, 26, 33, 44, 50, 54, 63, 70, 80
-// extreme: 49, 64, 84, 90
-// 29, 31, 34, 37-39, 41, 43, 46, 47, 51-53, 55, 57-59, 61-62, 65-69, 71, 73-79, 81-83, 85-89, 91-100
+import precomputedBasicCombinations from "../data/precomputed-basic-combinations.json" with { type: "json" };
+import { Button } from "~/components/ui/button";
 
 // TODO: prevent fake timers
 
@@ -32,7 +29,7 @@ export async function loader({}: Route.LoaderArgs) {
     rounds: 100,
     maxPlayers: 4,
     numberSet: [10, 10, 10, 10],
-    operators: ALL_OPERATOR_SYMBOLS,
+    operators: BASIC_OPERATOR_SYMBOLS,
     hostNickname: "qwertyuiop",
     roomName: "test",
   };
@@ -45,6 +42,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
   const [answer, setAnswer] = useState("");
   const [target, setTarget] = useState(0);
   const [numbers, setNumbers] = useState<number[]>([]);
+  const [points, setPoints] = useState(0);
   const [initialTimer, setInitialTimer] = useState(3);
   const inputRef = useRef<HTMLInputElement>(null);
   const stopwatchRef = useRef<StopwatchHandle>(null);
@@ -52,6 +50,12 @@ export default function Game({ loaderData }: Route.ComponentProps) {
   const { tokens: allowedOperators, options } = getTokensAndOptions(
     game.operators
   );
+  function calculatePoints(complexity: number) {
+    if (complexity === 1) return 5;
+    if (complexity === 2) return 10;
+    if (complexity === 3) return 20;
+    return 0;
+  }
   function resetRound() {
     if (stopwatchRef.current) {
       const time = stopwatchRef.current.getTime();
@@ -61,6 +65,17 @@ export default function Game({ loaderData }: Route.ComponentProps) {
     }
     if (inputRef.current) {
       inputRef.current.focus();
+    }
+    if (matchDefaultOperators(game.operators) === 1) {
+      const randomCombination =
+        precomputedBasicCombinations[
+          Math.floor(Math.random() * precomputedBasicCombinations.length)
+        ];
+      setNumbers(randomCombination.slice(0, 4));
+      setTarget(randomCombination[4]);
+      setPoints(calculatePoints(randomCombination[5]));
+      setAnswer("");
+      return;
     }
     setTarget(Math.floor(Math.random() * 100) + 1);
     setNumbers(game.numberSet.map((n) => Math.floor(Math.random() * n) + 1));
@@ -175,7 +190,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
             />
           )}
           <div className="flex items-center justify-end text-green-700 dark:text-green-500 text-lg sm:text-xl font-extrabold leading-none">
-            +42 Points
+            +{points} Points
           </div>
         </div>
       </div>
@@ -198,6 +213,20 @@ export default function Game({ loaderData }: Route.ComponentProps) {
         onKeyDown={handleInputKeyDown}
         placeholder="Enter math expression..."
       />
+      <div className="flex w-full justify-start gap-2">
+        <Button
+          onClick={handleSubmit}
+          className="bg-background-reverse text-text-reverse hover:bg-background-reverse hover:opacity-90 hover:cursor-pointer active:opacity-80"
+        >
+          Submit Answer
+        </Button>
+        <Button
+          onClick={requestSkip}
+          className="bg-background-light border-1 border-border hover:bg-background-light hover:opacity-90 hover:cursor-pointer active:opacity-80"
+        >
+          Skip Round
+        </Button>
+      </div>
     </div>
   );
 }
