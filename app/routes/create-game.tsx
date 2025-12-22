@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Form } from "react-router";
+import { Form, redirect } from "react-router";
 import { Input } from "~/components/ui/input";
 import {
   ALL_OPERATOR_SYMBOLS,
@@ -7,8 +7,11 @@ import {
   getAnonymousPlayerId,
   type OperatorSymbol,
 } from "~/utils/games";
+import type { Route } from "./+types/create-game";
+import { createClient } from "~/lib/supabase/server";
 
 export default function CreateGame() {
+  const [hostId, setHostId] = useState("");
   const [hostName, setHostName] = useState("");
   const [rounds, setRounds] = useState(20);
   const [operators, setOperators] = useState<OperatorSymbol[]>(
@@ -18,17 +21,18 @@ export default function CreateGame() {
 
   useEffect(() => {
     const playerId = getAnonymousPlayerId();
-    console.log("Anonymous Player ID:", playerId);
+    setHostId(playerId);
   }, []);
   return (
     <>
       <div className="font-bold text-2xl">Create Game</div>
-      <Form>
+      <Form method="POST">
+        <input type="text" name="host-id" value={hostId} readOnly hidden />
         <label>
           Host Nickname:
           <Input
             type="text"
-            name="hostName"
+            name="host-name"
             value={hostName}
             onChange={(e) => setHostName(e.target.value)}
           />
@@ -48,7 +52,7 @@ export default function CreateGame() {
           Max Players:
           <Input
             type="number"
-            name="maxPlayers"
+            name="max-players"
             value={maxPlayers}
             onChange={(e) => setMaxPlayers(parseInt(e.target.value, 10))}
           />
@@ -89,4 +93,32 @@ export default function CreateGame() {
       </Form>
     </>
   );
+}
+
+export async function action({ request }: Route.ActionArgs) {
+  const formData = await request.formData();
+  const hostId = String(formData.get("host-id"));
+  const hostData = {
+    nickname: String(formData.get("host-name")),
+    active: true,
+    score: 0,
+  };
+
+  const { supabase, headers } = createClient(request);
+  const { data, error } = await supabase
+    .from("anonymous-games")
+    .insert({
+      status: "lobby",
+      rounds: Number(formData.get("rounds")),
+      host_id: hostId,
+      max_players: Number(formData.get("max-players")),
+      current_players: { [hostId]: hostData },
+    })
+    .select()
+    .single();
+  if (error) {
+    console.log("Error creating game:", error);
+    return;
+  }
+  return redirect(`/game/${data.id}`, { headers });
 }
