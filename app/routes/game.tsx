@@ -9,7 +9,6 @@ import {
 import { Input } from "~/components/ui/input";
 import { parse } from "~/utils/pratt-parser";
 import { evaluateAST, simplify } from "~/utils/evaluator";
-import Stopwatch, { type StopwatchHandle } from "~/components/stopwatch";
 import supabase from "~/lib/supabase/client";
 import Fraction from "fraction.js";
 import precomputedBasicCombinations from "../data/precomputed-basic-combinations.json" with { type: "json" };
@@ -47,24 +46,11 @@ type WrongAnswerData = {
   error?: string;
 };
 
-type SkipRoundData = {
-  currentRound: number;
-  target: number;
-  numbers: number[];
-  complexity: number;
-};
-
-type NewRoundData = {
-  newRound: number;
-  target: number;
-  numbers: number[];
-  complexity: number;
-};
-
-type RealtimeGameState = {
-  numbers: number[];
-  target: number;
+type GameState = {
   round: number;
+  roundStartedAt: string;
+  numbers: number[];
+  target: number;
   complexity: number;
 };
 
@@ -107,28 +93,43 @@ export default function Game({ loaderData }: Route.ComponentProps) {
   );
   const operators = BASIC_OPERATOR_SYMBOLS;
   const numberSet = [10, 10, 10, 10];
+  const WAITING_MAX_MS = 3000;
+  const ROUND_MAX_MS = 3 * 1000;
 
-  const [round, setRound] = useState(0);
+  const [gameStatus, setGameStatus] = useState(game.status);
+  const [isCopied, setIsCopied] = useState(false);
+  const [gameStartedAt, setGameStartedAt] = useState(
+    game.game_started_at ? new Date(game.game_started_at).getTime() : null
+  );
+  const [currentTimeMS, setCurrentTimeMS] = useState(() => Date.now());
+  const [gameState, setGameState] = useState<GameState>({
+    round: game.current_round ? game.current_round : 0,
+    roundStartedAt: game.current_round_started_at
+      ? game.current_round_started_at
+      : "",
+    numbers: game.current_numbers ? game.current_numbers : [0, 0, 0, 0],
+    target: game.current_target ? game.current_target : 0,
+    complexity: game.current_complexity ? game.current_complexity : 0,
+  });
   const [answer, setAnswer] = useState("");
-  const [target, setTarget] = useState(0);
-  const [numbers, setNumbers] = useState<number[]>([]);
-  const [points, setPoints] = useState(0);
+  const [points, setPoints] = useState(calculatePoints(gameState.complexity));
   const [wantsToSkip, setWantsToSkip] = useState(false);
-  const [initialTimer, setInitialTimer] = useState(3);
   const [players, setPlayers] = useState<PlayerData[]>([]);
 
   const inputRef = useRef<HTMLInputElement>(null);
-  const stopwatchRef = useRef<StopwatchHandle>(null);
   const gameChannelRef = useRef<RealtimeChannel | null>(null);
   const currentPlayerRef = useRef("");
-  const gameStateRef = useRef<RealtimeGameState>({
-    numbers: [],
-    target: 0,
+  const gameStateRef = useRef<GameState>({
     round: 0,
+    roundStartedAt: "",
+    numbers: [0, 0, 0, 0],
+    target: 0,
     complexity: 0,
   });
   const playersRef = useRef<PlayerData[]>([]);
+  const roundEndingRef = useRef(false);
 
+  const GAME_START_EVENT = "game-start";
   const CHANGE_SKIP_STATUS_EVENT = "change-skip-status";
   const ANSWER_SUBMIT_EVENT = "answer-submit";
   const RIGHT_ANSWER_EVENT = "right-answer";
@@ -150,6 +151,9 @@ export default function Game({ loaderData }: Route.ComponentProps) {
     gameChannelRef.current = gameChannel;
 
     gameChannel
+      .on("broadcast", { event: GAME_START_EVENT }, (data) => {
+        handleGameStartEvent(data.payload);
+      })
       .on("broadcast", { event: ANSWER_SUBMIT_EVENT }, (data) => {
         handleAnswerSubmitEvent(data.payload);
       })
@@ -170,12 +174,23 @@ export default function Game({ loaderData }: Route.ComponentProps) {
       })
       .on("broadcast", { event: GAME_OVER_EVENT }, (data) => {
         handleGameOverEvent();
-        stopwatchRef.current?.pause();
       })
       .on("presence", { event: "sync" }, () => {
         const newState = gameChannel.presenceState<RealtimePlayerState>();
         handleSyncEvent(newState);
       })
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "anonymous-games",
+          filter: `id=eq.${game.id}`,
+        },
+        (payload) => {
+          handleGameUpdateEvent(payload.new);
+        }
+      )
       .subscribe(async (status) => {
         if (status !== "SUBSCRIBED") return;
 
@@ -193,25 +208,100 @@ export default function Game({ loaderData }: Route.ComponentProps) {
   }, []);
 
   useEffect(() => {
-    if (initialTimer > 0) {
-      const timer = setTimeout(() => {
-        setInitialTimer((prev) => prev - 1);
-      }, 1000);
-      return () => clearTimeout(timer);
-    } else {
-      const { newNumbers, newTarget, newComplexity } = getNewRoundData();
-      gameChannelRef.current?.send({
-        type: "broadcast",
-        event: NEW_ROUND_EVENT,
-        payload: {
-          newRound: 1,
-          target: newTarget,
-          numbers: newNumbers,
-          complexity: newComplexity,
-        },
-      });
+    if ((gameStatus !== "timer" && gameStatus !== "playing") || !gameStartedAt)
+      return;
+    if (gameStatus === "playing") {
+      console.log("Setting up round timer effect");
+      if (!gameStateRef.current.roundStartedAt) return;
+      const tick = async () => {
+        const endsAt =
+          new Date(gameStateRef.current.roundStartedAt).getTime() +
+          ROUND_MAX_MS;
+        const now = Date.now();
+        setCurrentTimeMS(now);
+        console.log("Round timer tick:", now, endsAt);
+        if (now >= endsAt) {
+          if (roundEndingRef.current) return;
+          roundEndingRef.current = true;
+          if (currentPlayerRef.current !== game.host_id) return;
+          console.log("Round time over, skipping to next round");
+          const { newNumbers, newTarget, newComplexity } = getNewRoundData();
+          const now = new Date().toISOString();
+          gameChannelRef.current?.send({
+            type: "broadcast",
+            event: SKIP_ROUND_EVENT,
+            payload: {
+              round: gameStateRef.current.round,
+              roundStartedAt: now,
+              numbers: newNumbers,
+              target: newTarget,
+              complexity: newComplexity,
+            },
+          });
+          const { error } = await supabase
+            .from("anonymous-games")
+            .update({
+              current_round: gameStateRef.current.round,
+              current_round_started_at: now,
+              current_numbers: newNumbers,
+              current_target: newTarget,
+              current_complexity: newComplexity,
+            })
+            .eq("id", game.id);
+          if (error) {
+            console.log("Error updating game status to playing:", error);
+          }
+        }
+      };
+      tick();
+      const intervalId = setInterval(tick, 20);
+      return () => clearInterval(intervalId);
     }
-  }, [initialTimer]);
+    const endsAt = gameStartedAt + WAITING_MAX_MS;
+    const tick = async () => {
+      const now = Date.now();
+      setCurrentTimeMS(now);
+      if (now >= endsAt) {
+        if (roundEndingRef.current) return;
+        roundEndingRef.current = true;
+        if (currentPlayerRef.current !== game.host_id) return;
+        const { newNumbers, newTarget, newComplexity } = getNewRoundData();
+        const now = new Date().toISOString();
+        gameChannelRef.current?.send({
+          type: "broadcast",
+          event: GAME_START_EVENT,
+          payload: {
+            round: 1,
+            roundStartedAt: now,
+            target: newTarget,
+            numbers: newNumbers,
+            complexity: newComplexity,
+          },
+        });
+        const { error } = await supabase
+          .from("anonymous-games")
+          .update({
+            status: "playing",
+            current_round: 1,
+            current_round_started_at: now,
+            current_numbers: newNumbers,
+            current_target: newTarget,
+            current_complexity: newComplexity,
+          })
+          .eq("id", game.id);
+        if (error) {
+          console.log("Error updating game status to playing:", error);
+        }
+      }
+    };
+    tick();
+    const intervalId = setInterval(tick, 20);
+    return () => clearInterval(intervalId);
+  }, [gameStatus, gameStartedAt]);
+
+  useEffect(() => {
+    roundEndingRef.current = false;
+  }, [gameState.roundStartedAt]);
 
   function getNewRoundData() {
     if (matchDefaultOperators(operators) === 1) {
@@ -230,6 +320,11 @@ export default function Game({ loaderData }: Route.ComponentProps) {
     return { newNumbers, newTarget, newComplexity };
   }
 
+  function handleGameStartEvent(data: GameState) {
+    setGameStatus("playing");
+    const { round, roundStartedAt, numbers, target, complexity } = data;
+    updateRound(round, roundStartedAt, numbers, target, complexity);
+  }
   function handleAnswerSubmitEvent(data: AnswerSubmitData) {
     if (currentPlayerRef.current !== game.host_id) return;
     const { numbers, target, round, complexity } = gameStateRef.current;
@@ -287,7 +382,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
           type: "broadcast",
           event: NEW_ROUND_EVENT,
           payload: {
-            newRound: round + 1,
+            round: round + 1,
             target: newTarget,
             numbers: newNumbers,
             complexity: newComplexity,
@@ -329,9 +424,9 @@ export default function Game({ loaderData }: Route.ComponentProps) {
       setPlayers(updatedPlayers);
     }
   }
-  async function handleSkipRoundEvent(data: SkipRoundData) {
-    const { currentRound, target, numbers, complexity } = data;
-    updateRound(currentRound, target, numbers, complexity);
+  async function handleSkipRoundEvent(data: GameState) {
+    const { round, roundStartedAt, numbers, target, complexity } = data;
+    updateRound(round, roundStartedAt, numbers, target, complexity);
     const skipStatusTime = Date.now();
     gameChannelRef.current?.send({
       type: "broadcast",
@@ -349,9 +444,9 @@ export default function Game({ loaderData }: Route.ComponentProps) {
       playerNickname: `Player-${currentPlayerRef.current.slice(0, 5)}`,
     });
   }
-  async function handleNewRoundEvent(data: NewRoundData) {
-    const { newRound, target, numbers, complexity } = data;
-    updateRound(newRound, target, numbers, complexity);
+  async function handleNewRoundEvent(data: GameState) {
+    const { round, roundStartedAt, numbers, target, complexity } = data;
+    updateRound(round, roundStartedAt, numbers, target, complexity);
     const skipStatusTime = Date.now();
     gameChannelRef.current?.send({
       type: "broadcast",
@@ -416,7 +511,6 @@ export default function Game({ loaderData }: Route.ComponentProps) {
           target,
           numbers,
           result: "skipped",
-          time_taken_ms: stopwatchRef.current?.getTime() ?? 0,
         });
       if (error) {
         console.log("Error saving result:", error);
@@ -424,17 +518,38 @@ export default function Game({ loaderData }: Route.ComponentProps) {
         console.log("Result saved:", data);
       }
     })();
+    /*
     const { newNumbers, newTarget, newComplexity } = getNewRoundData();
     gameChannelRef.current?.send({
       type: "broadcast",
       event: SKIP_ROUND_EVENT,
       payload: {
-        currentRound: round,
+        round,
         target: newTarget,
         numbers: newNumbers,
         complexity: newComplexity,
       },
     });
+    */
+  }
+  function handleGameUpdateEvent(newGameData) {
+    console.log("Handling game update event:", newGameData);
+    if (newGameData.status !== gameStatus) {
+      if (newGameData.status === "canceled") {
+        gameChannelRef.current?.unsubscribe();
+      }
+      if (newGameData.status === "timer") {
+        const startedAt = new Date(newGameData.game_started_at).getTime();
+        setGameStartedAt(startedAt);
+      }
+      console.log(
+        "Game status changed from",
+        gameStatus,
+        "to",
+        newGameData.status
+      );
+      setGameStatus(newGameData.status);
+    }
   }
 
   function updatePlayers(
@@ -490,30 +605,72 @@ export default function Game({ loaderData }: Route.ComponentProps) {
   }
   function updateRound(
     round: number,
-    target: number,
+    roundStartedAt: string,
     numbers: number[],
+    target: number,
     complexity: number
   ) {
-    setRound(round);
-    setTarget(target);
-    setNumbers(numbers);
+    setGameState({
+      round,
+      roundStartedAt,
+      numbers,
+      target,
+      complexity,
+    });
     setPoints(calculatePoints(complexity));
     setAnswer("");
     setWantsToSkip(false);
-    gameStateRef.current = { numbers, target, round, complexity };
-    if (stopwatchRef.current) {
-      const time = stopwatchRef.current.getTime();
-      stopwatchRef.current.reset();
-      stopwatchRef.current.start();
-      console.log("Stopwatch reset and started at time:", time);
-    }
+    gameStateRef.current = {
+      round,
+      roundStartedAt,
+      numbers,
+      target,
+      complexity,
+    };
     if (inputRef.current) {
       inputRef.current.focus();
     }
   }
 
+  async function copyGameLink() {
+    const gameLink = `${window.location.origin}/game/${game.id}`;
+    try {
+      await navigator.clipboard.writeText(gameLink);
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 2000);
+    } catch (err) {
+      alert("Failed to copy link. Please copy it manually.");
+    }
+  }
+  async function handleHostStartGame() {
+    const currentTimestampTZ = new Date().toISOString();
+    const { error } = await supabase
+      .from("anonymous-games")
+      .update({
+        status: "timer",
+        game_started_at: currentTimestampTZ,
+      })
+      .eq("id", game.id);
+    if (error) {
+      console.log("Error starting game:", error);
+      return;
+    }
+  }
+  async function handleCancelGame() {
+    const { error } = await supabase
+      .from("anonymous-games")
+      .update({
+        status: "canceled",
+      })
+      .eq("id", game.id);
+    if (error) {
+      console.log("Error canceling game:", error);
+      return;
+    }
+  }
   function submitAnswer() {
-    const currentTime = stopwatchRef.current?.getTime() ?? 0;
+    const currentTime =
+      Date.now() - new Date(gameState.roundStartedAt).getTime();
     gameChannelRef.current?.send({
       type: "broadcast",
       event: ANSWER_SUBMIT_EVENT,
@@ -552,14 +709,22 @@ export default function Game({ loaderData }: Route.ComponentProps) {
       changeSkipStatus(!wantsToSkip);
     }
   }
-  return (
+
+  return gameStatus === "lobby" || gameStatus === "canceled" ? (
     <div className="flex flex-col items-center gap-6 min-[900px]:flex-row min-[900px]:justify-center min-[900px]:items-start">
       <div className="flex flex-col gap-6 justify-center items-center w-full max-w-[32rem] min-[900px]:max-w-[24rem]">
         <div className="flex justify-between items-center gap-2 w-full h-[54px]">
-          <div className="flex grow text-2xl sm:text-3xl">Lobby</div>
-          <Button className="bg-background-light border-1 border-border hover:bg-background-light hover:opacity-90 hover:cursor-pointer active:opacity-80">
-            Copy Link
-          </Button>
+          <div className="flex grow text-2xl sm:text-3xl">
+            {gameStatus === "lobby" ? "Lobby" : "Game Canceled"}
+          </div>
+          {gameStatus === "lobby" ? (
+            <Button
+              onClick={copyGameLink}
+              className="bg-background-light border-1 border-border hover:bg-background-light hover:opacity-90 hover:cursor-pointer active:opacity-80"
+            >
+              {isCopied ? "Copied!" : "Copy Link"}
+            </Button>
+          ) : null}
         </div>
         <div
           className={`bg-background-light flex flex-col justify-center w-full dark:border-border-muted dark:border-2 shadow dark:shadow-none rounded-md font-normal px-2 py-1`}
@@ -568,23 +733,142 @@ export default function Game({ loaderData }: Route.ComponentProps) {
           <div className="text-lg">Operators: {operators.join(", ")}</div>
         </div>
         <div className="flex w-full justify-start gap-2">
-          {game.host_id === currentPlayerRef.current ? (
-            <>
+          {gameStatus === "lobby" ? (
+            game.host_id === currentPlayerRef.current ? (
+              <>
+                <Button
+                  onClick={handleHostStartGame}
+                  className="bg-background-reverse text-text-reverse hover:bg-background-reverse hover:opacity-90 hover:cursor-pointer active:opacity-80"
+                >
+                  Start Game
+                </Button>
+                <Button
+                  onClick={handleCancelGame}
+                  className="bg-danger text-text-reverse dark:text-text hover:bg-danger hover:opacity-90 hover:cursor-pointer active:opacity-80"
+                >
+                  Cancel Game
+                </Button>
+              </>
+            ) : (
               <Button className="bg-background-reverse text-text-reverse hover:bg-background-reverse hover:opacity-90 hover:cursor-pointer active:opacity-80">
-                Start Game
+                Join Game
               </Button>
-              <Button className="bg-danger text-text-reverse dark:text-text hover:bg-danger hover:opacity-90 hover:cursor-pointer active:opacity-80">
-                Cancel Game
-              </Button>
-            </>
-          ) : (
-            <Button className="bg-background-reverse text-text-reverse hover:bg-background-reverse hover:opacity-90 hover:cursor-pointer active:opacity-80">
-              Join Game
-            </Button>
-          )}
+            )
+          ) : null}
         </div>
       </div>
-      <div className="flex flex-col min-[900px]:ml-12 gap-6 w-full min-[900px]:w-sm max-w-[32rem]">
+      {gameStatus === "lobby" ? (
+        <div className="flex flex-col min-[900px]:ml-12 gap-6 w-full min-[900px]:w-sm max-w-[32rem]">
+          <h2 className="flex text-2xl sm:text-3xl h-[54px] items-center">
+            Players ({players.length}/{game.max_players})
+          </h2>
+          <div className="flex flex-col gap-6">
+            {players.map((user) => (
+              <div key={user.id} className="flex w-full items-center">
+                <div>
+                  {user.avatarUrl ? (
+                    <img
+                      className="rounded-full w-14 aspect-square"
+                      src={user.avatarUrl}
+                      alt={user.nickname}
+                    />
+                  ) : (
+                    <div className="flex items-center justify-center rounded-full w-14 aspect-square text-3xl bg-gray-300 dark:bg-gray-600">
+                      {user.nickname.slice(0, 2).toUpperCase()}
+                    </div>
+                  )}
+                </div>
+                <div className="flex flex-col justify-center px-4 flex-grow">
+                  <div className="text-lg font-medium">
+                    {user.nickname}
+                    {user.active ? "" : " (Disconnected)"}
+                  </div>
+                  {user.wantsToSkip ? (
+                    <div className="text-sm text-green-700 dark:text-green-500">
+                      Wants to skip
+                    </div>
+                  ) : null}
+                </div>
+                <div className="flex items-center font-semibold text-xl">
+                  {user.score} Points
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  ) : (
+    <div className="flex flex-col items-center gap-6 xl:flex-row xl:justify-center xl:items-start">
+      <div className="flex flex-col gap-6 justify-center items-center w-full max-w-[50rem]">
+        <div className="flex justify-between items-center w-full">
+          <div className="flex text-2xl sm:text-3xl">
+            Round {gameState.round}/{game.rounds}
+          </div>
+          <div className="flex flex-col gap-1">
+            {gameStatus === "timer" ? (
+              <div className="flex items-center justify-end text-2xl sm:text-3xl text-red-500 font-semibold leading-none">
+                Starting in{" "}
+                {Math.ceil(
+                  (WAITING_MAX_MS - (currentTimeMS - gameStartedAt)) / 1000
+                )}
+                ...
+              </div>
+            ) : (
+              <div className="flex items-center justify-end text-2xl sm:text-3xl font-semibold leading-none [font-variant-numeric:tabular-nums]">
+                {formatTime(
+                  Math.max(
+                    0,
+                    ROUND_MAX_MS -
+                      (currentTimeMS -
+                        new Date(gameState.roundStartedAt).getTime())
+                  )
+                )}
+              </div>
+            )}
+            <div className="flex items-center justify-end text-green-700 dark:text-green-500 text-lg sm:text-xl font-extrabold leading-none">
+              +{points} Points
+            </div>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 w-full justify-items-center items-center gap-6">
+          <div className="bg-target-card flex flex-col items-center justify-center w-[min(max(55%,20rem),100%)] aspect-[2/1] md:aspect-[3/2] dark:border-border-muted shadow rounded-2xl">
+            <div className="text-2xl sm:max-md:text-3xl font-semibold">
+              Target
+            </div>
+            <div className="text-7xl sm:max-md:text-8xl font-semibold mt-1">
+              {gameState.target}
+            </div>
+          </div>
+          <CardGrid numbers={gameState.numbers} />
+        </div>
+        <Input
+          ref={inputRef}
+          type="text"
+          value={answer}
+          onChange={(e) => setAnswer(e.target.value)}
+          onKeyDown={handleInputKeyDown}
+          placeholder="Enter math expression..."
+          disabled={gameStatus !== "playing"}
+        />
+        <div className="flex w-full justify-start gap-2">
+          <Button
+            onClick={submitAnswer}
+            className="bg-background-reverse text-text-reverse hover:bg-background-reverse hover:opacity-90 hover:cursor-pointer active:opacity-80"
+            disabled={gameStatus !== "playing"}
+          >
+            Submit Answer
+          </Button>
+          <Button
+            onClick={() => changeSkipStatus(!wantsToSkip)}
+            className="bg-background-light border-1 border-border hover:bg-background-light hover:opacity-90 hover:cursor-pointer active:opacity-80"
+            disabled={gameStatus !== "playing"}
+          >
+            {wantsToSkip ? "Cancel Skip" : "Request Skip"}
+          </Button>
+        </div>
+      </div>
+      <div className="flex flex-col xl:ml-12 gap-6 w-full xl:w-sm max-w-[50rem]">
         <h2 className="flex text-2xl sm:text-3xl h-[54px] items-center">
           Players ({players.length}/{game.max_players})
         </h2>
@@ -624,105 +908,6 @@ export default function Game({ loaderData }: Route.ComponentProps) {
       </div>
     </div>
   );
-  /*
-  return (
-    <div className="flex flex-col items-center gap-6 xl:flex-row xl:justify-center xl:items-start">
-      <div className="flex flex-col gap-6 justify-center items-center w-full max-w-[50rem]">
-        <div className="flex justify-between items-center w-full">
-          <div className="flex text-2xl sm:text-3xl">
-            Round {round}/{game.rounds}
-          </div>
-          <div className="flex flex-col gap-1">
-            {initialTimer ? (
-              <div className="flex items-center justify-end text-2xl sm:text-3xl text-red-500 font-semibold leading-none">
-                Starting in {initialTimer}...
-              </div>
-            ) : (
-              <Stopwatch
-                ref={stopwatchRef}
-                className="flex items-center justify-end text-2xl sm:text-3xl font-semibold leading-none [font-variant-numeric:tabular-nums]"
-              />
-            )}
-            <div className="flex items-center justify-end text-green-700 dark:text-green-500 text-lg sm:text-xl font-extrabold leading-none">
-              +{points} Points
-            </div>
-          </div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 w-full justify-items-center items-center gap-6">
-          <div className="bg-target-card flex flex-col items-center justify-center w-[min(max(55%,20rem),100%)] aspect-[2/1] md:aspect-[3/2] dark:border-border-muted shadow rounded-2xl">
-            <div className="text-2xl sm:max-md:text-3xl font-semibold">
-              Target
-            </div>
-            <div className="text-7xl sm:max-md:text-8xl font-semibold mt-1">
-              {target}
-            </div>
-          </div>
-          <CardGrid numbers={numbers} />
-        </div>
-        <Input
-          ref={inputRef}
-          type="text"
-          value={answer}
-          onChange={(e) => setAnswer(e.target.value)}
-          onKeyDown={handleInputKeyDown}
-          placeholder="Enter math expression..."
-        />
-        <div className="flex w-full justify-start gap-2">
-          <Button
-            onClick={submitAnswer}
-            className="bg-background-reverse text-text-reverse hover:bg-background-reverse hover:opacity-90 hover:cursor-pointer active:opacity-80"
-          >
-            Submit Answer
-          </Button>
-          <Button
-            onClick={() => changeSkipStatus(!wantsToSkip)}
-            className="bg-background-light border-1 border-border hover:bg-background-light hover:opacity-90 hover:cursor-pointer active:opacity-80"
-          >
-            {wantsToSkip ? "Cancel Skip" : "Request Skip"}
-          </Button>
-        </div>
-      </div>
-      <div className="flex flex-col xl:ml-12 gap-6 w-full xl:w-sm max-w-[50rem]">
-        <h2 className="flex text-2xl sm:text-3xl h-[54px] items-center">
-          Players ({players.length}/{game.max_players})
-        </h2>
-        <div className="flex flex-col gap-6">
-          {players.map((user) => (
-            <div key={user.id} className="flex w-full rounded-2xl items-center">
-              <div>
-                {user.avatarUrl ? (
-                  <img
-                  className="rounded-full w-14 aspect-square"
-                  src={user.avatarUrl}
-                  alt={user.nickname}
-                  />
-                ) : (
-                  <div className="flex items-center justify-center rounded-full w-14 aspect-square text-3xl bg-gray-300 dark:bg-gray-600">
-                    {user.nickname.slice(0, 2).toUpperCase()}
-                  </div>
-                )}
-              </div>
-              <div className="flex flex-col justify-center px-4 flex-grow">
-                <div className="text-lg font-medium">
-                  {user.nickname}
-                  {user.active ? "" : " (Disconnected)"}
-                </div>
-                {user.wantsToSkip ? (
-                  <div className="text-sm text-green-700 dark:text-green-500">
-                    Wants to skip
-                  </div>
-                ) : null}
-              </div>
-              <div className="flex items-center font-semibold text-xl">
-                {user.score} Points
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-  */
 }
 
 function Card({
@@ -795,6 +980,23 @@ function CardGrid({ numbers }: { numbers: number[] }) {
       ))}
     </div>
   );
+}
+
+function formatTime(ms: number) {
+  const milliseconds = Math.floor((ms % 1000) / 10);
+  const seconds = Math.floor((ms / 1000) % 60);
+  const minutes = Math.floor((ms / (1000 * 60)) % 60);
+  const hours = Math.floor(ms / (1000 * 60 * 60));
+
+  let formatted = `${minutes.toString().padStart(2, "0")}:${seconds
+    .toString()
+    .padStart(2, "0")}.${milliseconds.toString().padStart(2, "0")}`;
+
+  if (hours > 0) {
+    formatted = `${hours.toString().padStart(2, "0")}:${formatted}`;
+  }
+
+  return formatted;
 }
 
 function distributeIntoRows<T>(

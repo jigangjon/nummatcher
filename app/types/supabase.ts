@@ -101,7 +101,7 @@ export type Database = {
           result: string
           round: number
           target: number
-          time_taken_ms: number
+          time_taken_ms: number | null
         }
         Insert: {
           answer?: string | null
@@ -113,7 +113,7 @@ export type Database = {
           result: string
           round: number
           target: number
-          time_taken_ms: number
+          time_taken_ms?: number | null
         }
         Update: {
           answer?: string | null
@@ -125,7 +125,7 @@ export type Database = {
           result?: string
           round?: number
           target?: number
-          time_taken_ms?: number
+          time_taken_ms?: number | null
         }
         Relationships: []
       }

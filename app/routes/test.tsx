@@ -1,6 +1,5 @@
 import Fraction from "fraction.js";
 import { useRef, useState } from "react";
-import Stopwatch, { type StopwatchHandle } from "~/components/stopwatch";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { astToString, evaluateAST, simplify } from "~/utils/evaluator";
