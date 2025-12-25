@@ -61,8 +61,8 @@ body {
   --primary: oklch(0.57 0.16 250);
   --secondary: oklch(0.57 0.16 70);
   --danger: oklch(0.577 0.22 27.325);
-  --warning: oklch(0.5 0.05 100);
-  --success: oklch(0.5 0.07 160);
+  --warning: oklch(0.5 0.1 100);
+  --success: oklch(0.5 0.1 160);
   --info: oklch(0.6 0.17 162.48);
   --target-card: oklch(0.97 0.07 103);
 }
@@ -83,7 +83,7 @@ body {
   --primary: oklch(0.65 0.15 250);
   --secondary: oklch(0.65 0.15 70);
   --danger: oklch(0.475 0.22 27.325);
-  --warning: oklch(0.65 0.25 90);
+  --warning: oklch(0.7 0.1 100);
   --success: oklch(0.7 0.1 160);
   --info: oklch(0.6 0.17 162.48);
   --target-card: oklch(0.3 0.18 103);

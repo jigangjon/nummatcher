@@ -12,7 +12,7 @@ import type { Route } from "./+types/test";
 import { authMiddleware } from "~/middleware/auth";
 import supabase from "~/lib/supabase/client";
 
-export const middleware: Route.MiddlewareFunction[] = [authMiddleware];
+// export const middleware: Route.MiddlewareFunction[] = [authMiddleware];
 
 export default function Test() {
   const [numbers, setNumbers] = useState("");
@@ -44,18 +44,24 @@ export default function Test() {
       setExpr("");
     }
   }
-  useEffect(() => {
-    const fetchData = async () => {
-      const { data, error } = await supabase
-        .from("anonymous-game-players")
-        .select("*")
-        .eq("game_id", "0757c892-5c7d-4939-afb1-78f43623024b");
-      console.log("Data:", data, "Error:", error);
-    };
-    fetchData();
-  }, []);
   return (
     <>
+      <div className="flex justify-between items-center w-full relative">
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-warning opacity-85 text-text-reverse rounded-md px-4 py-2 line-clamp-2">
+          Number 2 used too many times
+        </div>
+        <div className="flex text-2xl sm:text-3xl">
+          Round {1}/{20}
+        </div>
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center justify-end text-2xl sm:text-3xl font-semibold leading-none [font-variant-numeric:tabular-nums]">
+            00:59.20
+          </div>
+          <div className="flex items-center justify-end text-green-700 dark:text-green-500 text-lg sm:text-xl font-extrabold leading-none">
+            +20 Points
+          </div>
+        </div>
+      </div>
       <label htmlFor="concat">Concat</label>
       <input
         type="checkbox"
