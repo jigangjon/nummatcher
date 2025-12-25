@@ -7,8 +7,8 @@ import {
   matchDefaultOperators,
 } from "~/utils/games";
 import { Input } from "~/components/ui/input";
-import { parse } from "~/utils/pratt-parser";
-import { evaluateAST, simplify } from "~/utils/evaluator";
+import { parse, ParseError } from "~/utils/pratt-parser";
+import { evaluateAST, FractionError, simplify } from "~/utils/evaluator";
 import supabase from "~/lib/supabase/client";
 import Fraction from "fraction.js";
 import precomputedBasicCombinations from "../data/precomputed-basic-combinations.json" with { type: "json" };
@@ -87,7 +87,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
   const operators = BASIC_OPERATOR_SYMBOLS;
   const numberSet = [10, 10, 10, 10];
   const WAITING_MAX_MS = 3000;
-  const ROUND_MAX_MS = 600 * 1000;
+  const ROUND_MAX_MS = 60 * 1000;
 
   const [gameStatus, setGameStatus] = useState(game.status);
   const [isCopied, setIsCopied] = useState(false);
@@ -109,6 +109,10 @@ export default function Game({ loaderData }: Route.ComponentProps) {
   const [points, setPoints] = useState(calculatePoints(gameState.complexity));
   const [wantsToSkip, setWantsToSkip] = useState(false);
   const [players, setPlayers] = useState<PlayerStates>({});
+  const [eventAlertType, setEventAlertType] = useState<string | null>(null);
+  const [eventAlertMessage, setEventAlertMessage] = useState<string | null>(
+    null
+  );
 
   const gameStatusRef = useRef(game.status);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -125,6 +129,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
   });
   const playersRef = useRef<PlayerStates>({});
   const roundEndingRef = useRef(false);
+  const alertTimeoutRef = useRef<number | null>(null);
 
   const GAME_START_EVENT = "game-start";
   const CHANGE_SKIP_STATUS_EVENT = "change-skip-status";
@@ -136,11 +141,33 @@ export default function Game({ loaderData }: Route.ComponentProps) {
   const GAME_OVER_EVENT = "game-over";
 
   useEffect(() => {
-    if (
-      gameStatusRef.current === "canceled" ||
-      gameStatusRef.current === "ended"
-    )
+    if (gameStatusRef.current === "canceled") return;
+
+    if (gameStatusRef.current === "ended") {
+      (async () => {
+        const { data, error } = await supabase
+          .from("anonymous-game-players")
+          .select("*")
+          .eq("game_id", game.id);
+        if (error) {
+          console.log("Error fetching initial players:", error);
+          return;
+        }
+        const initialPlayers: PlayerStates = {};
+        for (const player of data) {
+          initialPlayers[player.player_id] = {
+            nickname: player.nickname ?? undefined,
+            avatarUrl: player.avatar_url || undefined,
+            wantsToSkip: false,
+            active: false,
+            score: player.score,
+          };
+        }
+        playersRef.current = initialPlayers;
+        setPlayers(initialPlayers);
+      })();
       return;
+    }
 
     const anonymousPlayerId = getAnonymousPlayerId();
     currentPlayerIDRef.current = anonymousPlayerId;
@@ -225,7 +252,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
           return;
         }
         if (data.some((p) => p.player_id === currentPlayerIDRef.current)) {
-          const presenceTrackStatus = await gameChannelRef.current?.track({
+          const presenceTrackStatus = await gameChannel.track({
             playerId: currentPlayerIDRef.current,
             roundStartedAt: gameStateRef.current.roundStartedAt,
             wantsToSkip: false,
@@ -234,8 +261,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
           setIsJoined(true);
         }
         const initialPlayers: PlayerStates = {};
-        const presences =
-          gameChannelRef.current?.presenceState<RealtimePlayerState>();
+        const presences = gameChannel.presenceState<RealtimePlayerState>();
         console.log("Initial players data:", data);
         for (const player of data) {
           initialPlayers[player.player_id] = {
@@ -353,29 +379,9 @@ export default function Game({ loaderData }: Route.ComponentProps) {
 
   useEffect(() => {
     roundEndingRef.current = false;
-  }, [gameState.roundStartedAt]);
-
-  useEffect(() => {
     if (!inputRef.current) return;
     inputRef.current.focus();
   }, [gameState.roundStartedAt]);
-
-  function getNewRoundData() {
-    if (matchDefaultOperators(operators) === 1) {
-      const randomCombination =
-        precomputedBasicCombinations[
-          Math.floor(Math.random() * precomputedBasicCombinations.length)
-        ];
-      const newNumbers = randomCombination.slice(0, 4);
-      const newTarget = randomCombination[4];
-      const newComplexity = randomCombination[5];
-      return { newNumbers, newTarget, newComplexity };
-    }
-    const newNumbers = numberSet.map((n) => Math.floor(Math.random() * n) + 1);
-    const newTarget = Math.floor(Math.random() * 100) + 1;
-    const newComplexity = 0;
-    return { newNumbers, newTarget, newComplexity };
-  }
 
   function handleGameStartEvent(data: GameState) {
     gameStatusRef.current = "playing";
@@ -486,6 +492,10 @@ export default function Game({ loaderData }: Route.ComponentProps) {
         });
       }
     } catch (error) {
+      const errorMessage =
+        error instanceof ParseError || error instanceof FractionError
+          ? error.message
+          : `Error: ${(error as Error).message}`;
       gameChannelRef.current?.send({
         type: "broadcast",
         event: WRONG_ANSWER_EVENT,
@@ -493,7 +503,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
           submitterId,
           answer,
           value: undefined,
-          error: (error as Error).message,
+          error: errorMessage,
         },
       });
     }
@@ -553,6 +563,21 @@ export default function Game({ loaderData }: Route.ComponentProps) {
   }
   async function handleRightAnswerEvent(data: RightAnswerData) {
     const { submitterId, points } = data;
+    const displayName =
+      submitterId === currentPlayerIDRef.current
+        ? "You"
+        : playersRef.current[submitterId].nickname ||
+          `Player-${submitterId.substring(0, 5)}`;
+    setEventAlertType("right-answer");
+    setEventAlertMessage(`${displayName} won the round! +${points} points`);
+    if (alertTimeoutRef.current !== null) {
+      clearTimeout(alertTimeoutRef.current);
+    }
+    alertTimeoutRef.current = window.setTimeout(() => {
+      setEventAlertType(null);
+      setEventAlertMessage(null);
+      alertTimeoutRef.current = null;
+    }, 2000);
     playersRef.current = {
       ...playersRef.current,
       [submitterId]: {
@@ -582,13 +607,19 @@ export default function Game({ loaderData }: Route.ComponentProps) {
   function handleWrongAnswerEvent(data: WrongAnswerData) {
     const { submitterId, answer, value, error } = data;
     if (submitterId !== currentPlayerIDRef.current) return;
-    if (error) {
-      console.log(`Error evaluating expression "${answer}":`, error);
-      return;
+    const message = value
+      ? `Wrong answer, evaluated to ${value.toString()}`
+      : error!;
+    setEventAlertType("wrong-answer");
+    setEventAlertMessage(message);
+    if (alertTimeoutRef.current !== null) {
+      clearTimeout(alertTimeoutRef.current);
     }
-    console.log(
-      `You submitted wrong answer "${answer}", evaluated to ${value}`
-    );
+    alertTimeoutRef.current = window.setTimeout(() => {
+      setEventAlertType(null);
+      setEventAlertMessage(null);
+      alertTimeoutRef.current = null;
+    }, 2000);
   }
   function handleGameOverEvent() {
     console.log("Game over handled via event");
@@ -703,23 +734,22 @@ export default function Game({ loaderData }: Route.ComponentProps) {
     setPlayers(updatedPlayers);
   }
 
-  function updateActivePlayers(
-    newState: RealtimePresenceState<RealtimePlayerState>
-  ) {
-    const updatedPlayers = { ...playersRef.current };
-    console.log(
-      "Updating active players with presence state:",
-      playersRef.current,
-      newState
-    );
-    for (const playerId of Object.keys(updatedPlayers)) {
-      updatedPlayers[playerId].active = newState[playerId] ? true : false;
+  function getNewRoundData() {
+    if (matchDefaultOperators(operators) === 1) {
+      const randomCombination =
+        precomputedBasicCombinations[
+          Math.floor(Math.random() * precomputedBasicCombinations.length)
+        ];
+      const newNumbers = randomCombination.slice(0, 4);
+      const newTarget = randomCombination[4];
+      const newComplexity = randomCombination[5];
+      return { newNumbers, newTarget, newComplexity };
     }
-    console.log("Updated players after active status update:", updatedPlayers);
-    playersRef.current = updatedPlayers;
-    setPlayers(updatedPlayers);
+    const newNumbers = numberSet.map((n) => Math.floor(Math.random() * n) + 1);
+    const newTarget = Math.floor(Math.random() * 100) + 1;
+    const newComplexity = 0;
+    return { newNumbers, newTarget, newComplexity };
   }
-
   function updateRound(
     round: number,
     roundStartedAt: string,
@@ -744,6 +774,22 @@ export default function Game({ loaderData }: Route.ComponentProps) {
       target,
       complexity,
     };
+  }
+  function updateActivePlayers(
+    newState: RealtimePresenceState<RealtimePlayerState>
+  ) {
+    const updatedPlayers = { ...playersRef.current };
+    console.log(
+      "Updating active players with presence state:",
+      playersRef.current,
+      newState
+    );
+    for (const playerId of Object.keys(updatedPlayers)) {
+      updatedPlayers[playerId].active = newState[playerId] ? true : false;
+    }
+    console.log("Updated players after active status update:", updatedPlayers);
+    playersRef.current = updatedPlayers;
+    setPlayers(updatedPlayers);
   }
 
   async function copyGameLink() {
@@ -946,10 +992,19 @@ export default function Game({ loaderData }: Route.ComponentProps) {
         </div>
       ) : null}
     </div>
-  ) : (
+  ) : gameStatus === "playing" || gameStatus === "timer" ? (
     <div className="flex flex-col items-center gap-6 xl:flex-row xl:justify-center xl:items-start">
       <div className="flex flex-col gap-6 justify-center items-center w-full max-w-[50rem]">
-        <div className="flex justify-between items-center w-full">
+        <div className="flex justify-between items-center w-full relative">
+          {eventAlertType === "right-answer" ? (
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-success opacity-85 text-text-reverse rounded-md px-4 py-2 line-clamp-2">
+              {eventAlertMessage}
+            </div>
+          ) : eventAlertType === "wrong-answer" ? (
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-warning opacity-85 text-text-reverse rounded-md px-4 py-2 line-clamp-2">
+              {eventAlertMessage}
+            </div>
+          ) : null}
           <div className="flex text-2xl sm:text-3xl">
             Round {gameState.round}/{game.rounds}
           </div>
@@ -1054,6 +1109,51 @@ export default function Game({ loaderData }: Route.ComponentProps) {
               </div>
             </div>
           ))}
+        </div>
+      </div>
+    </div>
+  ) : (
+    <div className="flex flex-col items-center gap-6 xl:flex-row xl:justify-center xl:items-start">
+      <div className="flex flex-col xl:ml-12 gap-6 w-full max-w-[32rem]">
+        <h2 className="flex text-2xl sm:text-3xl h-[54px] items-center">
+          Game Over!
+        </h2>
+        <div className="flex flex-col gap-6">
+          {[...Object.entries(players)]
+            .sort(([, aPlayer], [, bPlayer]) => bPlayer.score - aPlayer.score)
+            .map(([userId, player], index) => (
+              <div
+                key={userId}
+                className="flex w-full rounded-2xl items-center md:relative"
+              >
+                <div className="flex items-center justify-center text-4xl md:absolute md:left-[-3rem] mr-6 max-md:[font-variant-numeric:tabular-nums]">
+                  {index + 1}
+                </div>
+                <div>
+                  {player.avatarUrl ? (
+                    <img
+                      className="rounded-full w-14 aspect-square"
+                      src={player.avatarUrl}
+                      alt={player.nickname ?? `Players-${userId.slice(0, 5)}`}
+                    />
+                  ) : (
+                    <div className="flex items-center justify-center rounded-full w-14 aspect-square text-3xl bg-gray-300 dark:bg-gray-600">
+                      {player.nickname?.slice(0, 2).toUpperCase() ??
+                        userId.slice(0, 2).toUpperCase()}
+                    </div>
+                  )}
+                </div>
+                <div className="flex flex-col justify-center px-4 flex-grow">
+                  <div className="text-lg font-medium truncate">
+                    {player.nickname ?? `Players-${userId.slice(0, 5)}`}
+                    {userId === game.host_id ? " (Host)" : ""}
+                  </div>
+                </div>
+                <div className="flex items-center font-semibold text-xl">
+                  {player.score} Points
+                </div>
+              </div>
+            ))}
         </div>
       </div>
     </div>

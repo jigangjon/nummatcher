@@ -3,6 +3,8 @@
  * https://web.archive.org/web/20150228044653/http://effbot.org/zone/simple-top-down-parsing.htm
  */
 
+// TODO: make error messages more user-friendly
+
 import Fraction from "fraction.js";
 
 export interface Node {
@@ -66,6 +68,13 @@ export function parse(
 ) {
   const tokens = tokenizeRestricted(input, operators, numbers, concat, decimal);
   return tokensToAST(tokens, unaryMinus);
+}
+
+export class ParseError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ParseError";
+  }
 }
 
 interface Token extends Node {
@@ -184,10 +193,7 @@ function tokenizeRestricted(
         numStr += matchedNumber;
         if (!concat) break;
       }
-      if (!numStr)
-        throw new Error(
-          `Number ${char} used too many times, numbers: ${numbers}`
-        );
+      if (!numStr) throw new ParseError(`Number ${char} used too many times`);
       tokens.push(numberToken("." + numStr));
       continue;
     }
@@ -215,10 +221,7 @@ function tokenizeRestricted(
         }
         if (!concat) break;
       }
-      if (!numStr)
-        throw new Error(
-          `Number ${char} used too many times, numbers: ${numbers}`
-        );
+      if (!numStr) throw new ParseError(`Number ${char} used too many times`);
       if (isMulByJuxtaposition(tokens.at(-1)?.symbol ?? "", numStr)) {
         tokens.push(OPERATOR_TOKEN_MAP["*"]());
       }
@@ -233,14 +236,14 @@ function tokenizeRestricted(
         break;
       }
     }
-    if (!matchedOperator) throw new Error(`Symbol ${char} not available`);
+    if (!matchedOperator) throw new ParseError(`Symbol ${char} not available`);
     if (isMulByJuxtaposition(tokens.at(-1)?.symbol ?? "", matchedOperator)) {
       tokens.push(OPERATOR_TOKEN_MAP["*"]());
     }
     tokens.push(OPERATOR_TOKEN_MAP[matchedOperator]());
   }
   if (unusedNumberSymbols[0])
-    throw new Error(`Didn't use number ${unusedNumberSymbols[0]}`);
+    throw new ParseError(`Didn't use number ${unusedNumberSymbols[0]}`);
   tokens.push(endToken());
   return tokens;
 }
@@ -248,8 +251,8 @@ function tokenizeRestricted(
 function tokensToAST(tokens: Token[], unaryMinus = true) {
   const { left, nextIndex } = expressionNud(0, tokens, 0, unaryMinus);
   if (tokens[nextIndex].symbol !== "__end") {
-    throw new Error(
-      `Unexpected token ${tokens[nextIndex].symbol} at the end of the expression`
+    throw new ParseError(
+      `Unexpected symbol ${tokens[nextIndex].symbol} at the end of the expression`
     );
   }
   return left;
@@ -263,12 +266,14 @@ function expressionNud(
 ): TokenWithIndex {
   const currentToken = tokenList[currentIndex];
   if (currentToken.symbol === "__end")
-    throw new Error("expression ended unfinished");
+    throw new ParseError("Expression ended unfinished");
   if (!currentToken.nud) {
-    throw new Error(`Unexpected symbol: ${currentToken.symbol}`);
+    throw new ParseError(
+      `An expression cannot begin with ${currentToken.symbol}`
+    );
   }
   if (currentToken.symbol === "-" && !unaryMinus) {
-    throw new Error(`Unary minus "-" not allowed`);
+    throw new ParseError(`Unary minus is not allowed`);
   }
   const { left, nextIndex } = currentToken.nud(tokenList, currentIndex);
   const nextToken = tokenList[nextIndex];
@@ -287,7 +292,9 @@ function expressionLed(
   const currentToken = tokenList[currentIndex];
   if (rbp >= currentToken.lbp) return { left, nextIndex: currentIndex };
   if (!currentToken.led) {
-    throw new Error(`Unexpected symbol: ${currentToken.symbol}`);
+    throw new ParseError(
+      `Symbol ${currentToken.symbol} cannot take arguments on left`
+    );
   }
   const { left: newLeft, nextIndex } = currentToken.led(
     left,
@@ -303,7 +310,7 @@ function assertTokenEqual(
   currentIndex: number
 ) {
   if (tokenList[currentIndex].symbol !== symbol) {
-    throw new Error(`Expected token: ${symbol}`);
+    throw new ParseError(`Expected token: ${symbol}`);
   }
   return currentIndex + 1;
 }

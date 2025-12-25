@@ -15,6 +15,8 @@
 // leading decimal point to be added later
 // repeated decimal points to be handled later
 
+// TODO: be careful with simplifying exponents (((-2)^2)^1/2)
+
 import Fraction from "fraction.js";
 import {
   operatorNode,
@@ -24,6 +26,7 @@ import {
   PREFIXES,
   POSTFIXES,
   INFIXES,
+  ParseError,
 } from "./pratt-parser";
 import { MoreMath } from "./more-math";
 
@@ -85,19 +88,30 @@ export function simplify(node: Node): Node {
 export function evaluateAST(node: Node, unaryMinus: boolean): Fraction {
   if (node.value != null) return node.value;
   if (node.args == null) {
-    throw new Error(`Operator ${node.symbol} is missing arguments`);
+    throw new ParseError(`Operator ${node.symbol} is missing arguments`);
   }
   const operatorFunctionsMap = getOperatorFunctionMap(unaryMinus);
   if (!(node.symbol in operatorFunctionsMap)) {
-    throw new Error(`Unknown operator: ${node.symbol}`);
+    throw new ParseError(`Unknown operator: ${node.symbol}`);
   }
   const arity = node.args.length;
   if (!(arity in operatorFunctionsMap[node.symbol])) {
-    throw new Error(`Operator ${node.symbol} does not take ${arity} arguments`);
+    throw new ParseError(
+      `Operator ${node.symbol} does not take ${arity} arguments`
+    );
   }
-  const evaluatedArgs = node.args.map((arg) => evaluateAST(arg, unaryMinus));
-  const operatorFunction = operatorFunctionsMap[node.symbol][arity];
-  return operatorFunction(...evaluatedArgs);
+  let evaluatedArgs;
+  try {
+    evaluatedArgs = node.args.map((arg) => evaluateAST(arg, unaryMinus));
+    const operatorFunction = operatorFunctionsMap[node.symbol][arity];
+    const result = operatorFunction(...evaluatedArgs);
+    if (result === null) throw new FractionError(node.symbol, evaluatedArgs);
+    return result;
+  } catch (error) {
+    if (error instanceof FractionError || error instanceof ParseError)
+      throw error;
+    throw new FractionError(node.symbol, evaluatedArgs!);
+  }
 }
 
 export function astToString(node: Node, wrapParentheses = false): string {
@@ -129,7 +143,7 @@ export function astToString(node: Node, wrapParentheses = false): string {
       const str = `${argString}${node.symbol}`;
       return wrapParentheses ? `(${str})` : str;
     }
-    throw new Error(`Unknown unary operator: ${node.symbol}`);
+    throw new ParseError(`Unknown unary operator: ${node.symbol}`);
   }
   if (node.args.length === 2) {
     if (INFIXES.includes(node.symbol)) {
@@ -142,9 +156,48 @@ export function astToString(node: Node, wrapParentheses = false): string {
       const str = `${leftString}${node.symbol}${rightString}`;
       return wrapParentheses ? `(${str})` : str;
     }
-    throw new Error(`Unknown binary operator: ${node.symbol}`);
+    throw new ParseError(`Unknown binary operator: ${node.symbol}`);
   }
-  throw new Error(`Operator ${node.symbol} has invalid number of arguments`);
+  throw new ParseError(
+    `Operator ${node.symbol} has invalid number of arguments`
+  );
+}
+
+export class FractionError extends Error {
+  constructor(symbol: string, args: Fraction[]) {
+    super(`"${operatorFractionArgsToString(symbol, args)}" is not a Fraction`);
+    this.name = "FractionError";
+  }
+}
+
+function operatorFractionArgsToString(
+  symbol: string,
+  args: Fraction[]
+): string {
+  if (FUNCTIONS.includes(symbol)) {
+    const argStrings = args.map((arg) => arg.toString());
+    const str = `${symbol}(${argStrings.join(", ")})`;
+    return str;
+  }
+  if (args.length === 1) {
+    if (PREFIXES.includes(symbol)) {
+      const str = `${symbol}${args[0].toString()}`;
+      return str;
+    }
+    if (POSTFIXES.includes(symbol)) {
+      const str = `${args[0].toString()}${symbol}`;
+      return str;
+    }
+    throw new ParseError(`Unknown unary operator: ${symbol}`);
+  }
+  if (args.length === 2) {
+    if (INFIXES.includes(symbol)) {
+      const str = `${args[0].toString()}${symbol}${args[1].toString()}`;
+      return str;
+    }
+    throw new ParseError(`Unknown binary operator: ${symbol}`);
+  }
+  throw new ParseError(`Operator ${symbol} has invalid number of arguments`);
 }
 
 // simplification rules

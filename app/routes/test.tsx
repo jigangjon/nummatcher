@@ -12,7 +12,7 @@ import type { Route } from "./+types/test";
 import { authMiddleware } from "~/middleware/auth";
 import supabase from "~/lib/supabase/client";
 
-// export const middleware: Route.MiddlewareFunction[] = [authMiddleware];
+export const middleware: Route.MiddlewareFunction[] = [authMiddleware];
 
 export default function Test() {
   const [numbers, setNumbers] = useState("");
