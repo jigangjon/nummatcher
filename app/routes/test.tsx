@@ -1,5 +1,5 @@
 import Fraction from "fraction.js";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { astToString, evaluateAST, simplify } from "~/utils/evaluator";
@@ -10,8 +10,9 @@ import {
 } from "~/utils/pratt-parser";
 import type { Route } from "./+types/test";
 import { authMiddleware } from "~/middleware/auth";
+import supabase from "~/lib/supabase/client";
 
-export const middleware: Route.MiddlewareFunction[] = [authMiddleware];
+// export const middleware: Route.MiddlewareFunction[] = [authMiddleware];
 
 export default function Test() {
   const [numbers, setNumbers] = useState("");
@@ -43,6 +44,16 @@ export default function Test() {
       setExpr("");
     }
   }
+  useEffect(() => {
+    const fetchData = async () => {
+      const { data, error } = await supabase
+        .from("anonymous-game-players")
+        .select("*")
+        .eq("game_id", "0757c892-5c7d-4939-afb1-78f43623024b");
+      console.log("Data:", data, "Error:", error);
+    };
+    fetchData();
+  }, []);
   return (
     <>
       <label htmlFor="concat">Concat</label>

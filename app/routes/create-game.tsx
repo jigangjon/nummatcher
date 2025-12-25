@@ -98,26 +98,32 @@ export default function CreateGame() {
 export async function action({ request }: Route.ActionArgs) {
   const formData = await request.formData();
   const hostId = String(formData.get("host-id"));
-  const hostData = {
-    nickname: String(formData.get("host-name")),
-    active: true,
-    score: 0,
-  };
 
   const { supabase, headers } = createClient(request);
-  const { data, error } = await supabase
+  const { data, error: gameError } = await supabase
     .from("anonymous-games")
     .insert({
       status: "lobby",
       rounds: Number(formData.get("rounds")),
       host_id: hostId,
       max_players: Number(formData.get("max-players")),
-      current_players: { [hostId]: hostData },
     })
     .select()
     .single();
-  if (error) {
-    console.log("Error creating game:", error);
+  if (gameError) {
+    console.log("Error creating game:", gameError);
+    return;
+  }
+  const { error: playerError } = await supabase
+    .from("anonymous-game-players")
+    .insert({
+      game_id: data.id,
+      player_id: hostId,
+      nickname: String(formData.get("host-name")) || undefined,
+      score: 0,
+    });
+  if (playerError) {
+    console.log("Error creating host player:", playerError);
     return;
   }
   return redirect(`/game/${data.id}`, { headers });

@@ -39,15 +39,48 @@ export type Database = {
   }
   public: {
     Tables: {
+      "anonymous-game-players": {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          game_id: string
+          nickname: string | null
+          player_id: string
+          score: number
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          game_id?: string
+          nickname?: string | null
+          player_id: string
+          score?: number
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          game_id?: string
+          nickname?: string | null
+          player_id?: string
+          score?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "anonymous-game-players_game_id_fkey"
+            columns: ["game_id"]
+            isOneToOne: false
+            referencedRelation: "anonymous-games"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       "anonymous-games": {
         Row: {
           created_at: string
           current_complexity: number | null
           current_numbers: number[] | null
-          current_players: Json
           current_round: number | null
           current_round_started_at: string | null
-          current_skip_votes: Json | null
           current_target: number | null
           game_started_at: string | null
           host_id: string
@@ -60,10 +93,8 @@ export type Database = {
           created_at?: string
           current_complexity?: number | null
           current_numbers?: number[] | null
-          current_players: Json
           current_round?: number | null
           current_round_started_at?: string | null
-          current_skip_votes?: Json | null
           current_target?: number | null
           game_started_at?: string | null
           host_id: string
@@ -76,10 +107,8 @@ export type Database = {
           created_at?: string
           current_complexity?: number | null
           current_numbers?: number[] | null
-          current_players?: Json
           current_round?: number | null
           current_round_started_at?: string | null
-          current_skip_votes?: Json | null
           current_target?: number | null
           game_started_at?: string | null
           host_id?: string

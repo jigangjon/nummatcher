@@ -1,3 +1,4 @@
+import { v4 as uuidv4 } from "uuid";
 import { DecimalOptions } from "./pratt-parser";
 
 export type GameConfig = {
@@ -94,7 +95,7 @@ function arraysEqual(a: any[], b: any[]) {
 export function getAnonymousPlayerId() {
   let id = localStorage.getItem("anonymous-player-id");
   if (!id) {
-    id = crypto.randomUUID();
+    id = uuidv4();
     localStorage.setItem("anonymous-player-id", id);
   }
   return id;

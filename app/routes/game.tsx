@@ -22,16 +22,9 @@ import { createClient } from "~/lib/supabase/server";
 // TODO: prevent fake timers
 // TODO: server control instead of host control
 
-type ChangeSkipStatusData = {
-  playerId: string;
-  wantsToSkip: boolean;
-  skipStatusTime: number;
-};
-
 type AnswerSubmitData = {
   submitterId: string;
   answer: string;
-  time: number;
 };
 
 type RightAnswerData = {
@@ -54,21 +47,21 @@ type GameState = {
   complexity: number;
 };
 
-type PlayerData = {
-  id: string;
-  nickname: string;
-  avatarUrl?: string;
-  wantsToSkip: boolean;
-  skipStatusTime: number;
-  active: boolean;
-  score: number;
-};
+type PlayerStates = Record<
+  string,
+  {
+    nickname?: string;
+    avatarUrl?: string;
+    wantsToSkip: boolean;
+    active: boolean;
+    score: number;
+  }
+>;
 
 type RealtimePlayerState = {
   playerId: string;
-  playerNickname: string;
+  roundStartedAt: string;
   wantsToSkip: boolean;
-  skipStatusTime: number;
 };
 
 export async function loader({ params, request }: Route.LoaderArgs) {
@@ -94,10 +87,11 @@ export default function Game({ loaderData }: Route.ComponentProps) {
   const operators = BASIC_OPERATOR_SYMBOLS;
   const numberSet = [10, 10, 10, 10];
   const WAITING_MAX_MS = 3000;
-  const ROUND_MAX_MS = 3 * 1000;
+  const ROUND_MAX_MS = 600 * 1000;
 
   const [gameStatus, setGameStatus] = useState(game.status);
   const [isCopied, setIsCopied] = useState(false);
+  const [isJoined, setIsJoined] = useState(false);
   const [gameStartedAt, setGameStartedAt] = useState(
     game.game_started_at ? new Date(game.game_started_at).getTime() : null
   );
@@ -114,19 +108,22 @@ export default function Game({ loaderData }: Route.ComponentProps) {
   const [answer, setAnswer] = useState("");
   const [points, setPoints] = useState(calculatePoints(gameState.complexity));
   const [wantsToSkip, setWantsToSkip] = useState(false);
-  const [players, setPlayers] = useState<PlayerData[]>([]);
+  const [players, setPlayers] = useState<PlayerStates>({});
 
+  const gameStatusRef = useRef(game.status);
   const inputRef = useRef<HTMLInputElement>(null);
   const gameChannelRef = useRef<RealtimeChannel | null>(null);
-  const currentPlayerRef = useRef("");
+  const currentPlayerIDRef = useRef("");
   const gameStateRef = useRef<GameState>({
-    round: 0,
-    roundStartedAt: "",
-    numbers: [0, 0, 0, 0],
-    target: 0,
-    complexity: 0,
+    round: game.current_round ? game.current_round : 0,
+    roundStartedAt: game.current_round_started_at
+      ? game.current_round_started_at
+      : "",
+    numbers: game.current_numbers ? game.current_numbers : [0, 0, 0, 0],
+    target: game.current_target ? game.current_target : 0,
+    complexity: game.current_complexity ? game.current_complexity : 0,
   });
-  const playersRef = useRef<PlayerData[]>([]);
+  const playersRef = useRef<PlayerStates>({});
   const roundEndingRef = useRef(false);
 
   const GAME_START_EVENT = "game-start";
@@ -139,8 +136,14 @@ export default function Game({ loaderData }: Route.ComponentProps) {
   const GAME_OVER_EVENT = "game-over";
 
   useEffect(() => {
+    if (
+      gameStatusRef.current === "canceled" ||
+      gameStatusRef.current === "ended"
+    )
+      return;
+
     const anonymousPlayerId = getAnonymousPlayerId();
-    currentPlayerRef.current = anonymousPlayerId;
+    currentPlayerIDRef.current = anonymousPlayerId;
 
     const gameChannel = supabase.channel(`game:${game.id}:events`, {
       config: {
@@ -176,8 +179,9 @@ export default function Game({ loaderData }: Route.ComponentProps) {
         handleGameOverEvent();
       })
       .on("presence", { event: "sync" }, () => {
-        const newState = gameChannel.presenceState<RealtimePlayerState>();
-        handleSyncEvent(newState);
+        const newPresenceState =
+          gameChannel.presenceState<RealtimePlayerState>();
+        handleSyncEvent(newPresenceState);
       })
       .on(
         "postgres_changes",
@@ -191,15 +195,64 @@ export default function Game({ loaderData }: Route.ComponentProps) {
           handleGameUpdateEvent(payload.new);
         }
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "anonymous-game-players",
+          filter: `game_id=eq.${game.id}`,
+        },
+        (payload) => {
+          handleGamePlayersUpdateEvent(payload.new);
+        }
+      )
       .subscribe(async (status) => {
         if (status !== "SUBSCRIBED") return;
-
-        await gameChannel.track({
-          wantsToSkip: false,
-          skipStatusTime: Date.now(),
-          playerId: anonymousPlayerId,
-          playerNickname: `Player-${anonymousPlayerId.slice(0, 5)}`,
-        });
+        if (currentPlayerIDRef.current === game.host_id) {
+          await gameChannel.track({
+            playerId: currentPlayerIDRef.current,
+            roundStartedAt: gameStateRef.current.roundStartedAt,
+            wantsToSkip: false,
+          });
+        }
+        const { data, error } = await supabase
+          .from("anonymous-game-players")
+          .select("*")
+          .eq("game_id", game.id);
+        if (error) {
+          console.log("Error fetching initial players:", error);
+          return;
+        }
+        if (data.some((p) => p.player_id === currentPlayerIDRef.current)) {
+          const presenceTrackStatus = await gameChannelRef.current?.track({
+            playerId: currentPlayerIDRef.current,
+            roundStartedAt: gameStateRef.current.roundStartedAt,
+            wantsToSkip: false,
+          });
+          console.log("Presence track status:", presenceTrackStatus);
+          setIsJoined(true);
+        }
+        const initialPlayers: PlayerStates = {};
+        const presences =
+          gameChannelRef.current?.presenceState<RealtimePlayerState>();
+        console.log("Initial players data:", data);
+        for (const player of data) {
+          initialPlayers[player.player_id] = {
+            nickname: player.nickname ?? undefined,
+            avatarUrl: player.avatar_url || undefined,
+            wantsToSkip: presences?.[player.player_id]?.find(
+              (p) => p.wantsToSkip === true
+            )
+              ? true
+              : false,
+            active: presences?.[player.player_id] ? true : false,
+            score: player.score,
+          };
+        }
+        console.log("Initial players constructed:", initialPlayers);
+        playersRef.current = initialPlayers;
+        setPlayers(initialPlayers);
       });
 
     return () => {
@@ -211,20 +264,20 @@ export default function Game({ loaderData }: Route.ComponentProps) {
     if ((gameStatus !== "timer" && gameStatus !== "playing") || !gameStartedAt)
       return;
     if (gameStatus === "playing") {
-      console.log("Setting up round timer effect");
+      console.log("Setting up round timer...");
+      console.log("Game state ref:", gameStateRef.current);
       if (!gameStateRef.current.roundStartedAt) return;
+      console.log("Round started at:", gameStateRef.current.roundStartedAt);
       const tick = async () => {
         const endsAt =
           new Date(gameStateRef.current.roundStartedAt).getTime() +
           ROUND_MAX_MS;
         const now = Date.now();
         setCurrentTimeMS(now);
-        console.log("Round timer tick:", now, endsAt);
         if (now >= endsAt) {
           if (roundEndingRef.current) return;
           roundEndingRef.current = true;
-          if (currentPlayerRef.current !== game.host_id) return;
-          console.log("Round time over, skipping to next round");
+          if (currentPlayerIDRef.current !== game.host_id) return;
           const { newNumbers, newTarget, newComplexity } = getNewRoundData();
           const now = new Date().toISOString();
           gameChannelRef.current?.send({
@@ -241,7 +294,6 @@ export default function Game({ loaderData }: Route.ComponentProps) {
           const { error } = await supabase
             .from("anonymous-games")
             .update({
-              current_round: gameStateRef.current.round,
               current_round_started_at: now,
               current_numbers: newNumbers,
               current_target: newTarget,
@@ -264,7 +316,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
       if (now >= endsAt) {
         if (roundEndingRef.current) return;
         roundEndingRef.current = true;
-        if (currentPlayerRef.current !== game.host_id) return;
+        if (currentPlayerIDRef.current !== game.host_id) return;
         const { newNumbers, newTarget, newComplexity } = getNewRoundData();
         const now = new Date().toISOString();
         gameChannelRef.current?.send({
@@ -303,6 +355,11 @@ export default function Game({ loaderData }: Route.ComponentProps) {
     roundEndingRef.current = false;
   }, [gameState.roundStartedAt]);
 
+  useEffect(() => {
+    if (!inputRef.current) return;
+    inputRef.current.focus();
+  }, [gameState.roundStartedAt]);
+
   function getNewRoundData() {
     if (matchDefaultOperators(operators) === 1) {
       const randomCombination =
@@ -321,14 +378,18 @@ export default function Game({ loaderData }: Route.ComponentProps) {
   }
 
   function handleGameStartEvent(data: GameState) {
+    gameStatusRef.current = "playing";
     setGameStatus("playing");
     const { round, roundStartedAt, numbers, target, complexity } = data;
     updateRound(round, roundStartedAt, numbers, target, complexity);
   }
-  function handleAnswerSubmitEvent(data: AnswerSubmitData) {
-    if (currentPlayerRef.current !== game.host_id) return;
+  async function handleAnswerSubmitEvent(data: AnswerSubmitData) {
+    if (currentPlayerIDRef.current !== game.host_id) return;
     const { numbers, target, round, complexity } = gameStateRef.current;
-    const { submitterId, answer, time } = data;
+    const { submitterId, answer } = data;
+    const timeItTook =
+      Date.now() - new Date(gameState.roundStartedAt).getTime();
+
     try {
       const ast = parse(
         answer,
@@ -361,7 +422,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
               numbers,
               answer,
               result: "correct",
-              time_taken_ms: time,
+              time_taken_ms: timeItTook,
             });
           if (error) {
             console.log("Error saving result:", error);
@@ -375,19 +436,43 @@ export default function Game({ loaderData }: Route.ComponentProps) {
             event: GAME_OVER_EVENT,
             payload: {},
           });
+          const { error } = await supabase
+            .from("anonymous-games")
+            .update({
+              status: "ended",
+            })
+            .eq("id", game.id);
+          if (error) {
+            console.log("Error while updating game status in db", error);
+          }
           return;
         }
         const { newNumbers, newTarget, newComplexity } = getNewRoundData();
+        const newRoundStartedAt = new Date().toISOString();
         gameChannelRef.current?.send({
           type: "broadcast",
           event: NEW_ROUND_EVENT,
           payload: {
             round: round + 1,
-            target: newTarget,
+            roundStartedAt: newRoundStartedAt,
             numbers: newNumbers,
+            target: newTarget,
             complexity: newComplexity,
           },
         });
+        const { error } = await supabase
+          .from("anonymous-games")
+          .update({
+            current_round: round + 1,
+            current_round_started_at: newRoundStartedAt,
+            current_numbers: newNumbers,
+            current_target: newTarget,
+            current_complexity: newComplexity,
+          })
+          .eq("id", game.id);
+        if (error) {
+          console.log("Error while updating game db", error);
+        }
       } else {
         gameChannelRef.current?.send({
           type: "broadcast",
@@ -413,75 +498,90 @@ export default function Game({ loaderData }: Route.ComponentProps) {
       });
     }
   }
-  function handleChangeSkipStatusEvent(data: ChangeSkipStatusData) {
-    const { playerId, wantsToSkip, skipStatusTime } = data;
-    const changeSkipPlayer = playersRef.current.find((p) => p.id === playerId);
-    if (skipStatusTime >= changeSkipPlayer?.skipStatusTime!) {
-      const updatedPlayers = playersRef.current.map((p) => {
-        return p.id === playerId ? { ...p, wantsToSkip, skipStatusTime } : p;
-      });
-      playersRef.current = updatedPlayers;
-      setPlayers(updatedPlayers);
-    }
+  function handleChangeSkipStatusEvent(data: RealtimePlayerState) {
+    const { playerId, roundStartedAt, wantsToSkip } = data;
+    if (roundStartedAt !== gameStateRef.current.roundStartedAt) return;
+    const changeSkipPlayer = playersRef.current[playerId];
+    const updatedPlayers = {
+      ...playersRef.current,
+      [playerId]: {
+        ...changeSkipPlayer,
+        wantsToSkip,
+      },
+    };
+    playersRef.current = updatedPlayers;
+    setPlayers(updatedPlayers);
   }
   async function handleSkipRoundEvent(data: GameState) {
     const { round, roundStartedAt, numbers, target, complexity } = data;
     updateRound(round, roundStartedAt, numbers, target, complexity);
-    const skipStatusTime = Date.now();
-    gameChannelRef.current?.send({
-      type: "broadcast",
-      event: CHANGE_SKIP_STATUS_EVENT,
-      payload: {
-        playerId: currentPlayerRef.current,
+
+    const updatedPlayers: PlayerStates = {};
+    for (const [playerId, playerInfo] of Object.entries(playersRef.current)) {
+      updatedPlayers[playerId] = {
+        ...playerInfo,
         wantsToSkip: false,
-        skipStatusTime,
-      },
-    });
+      };
+    }
+    playersRef.current = updatedPlayers;
+    setPlayers(updatedPlayers);
+
     await gameChannelRef.current?.track({
+      playerId: currentPlayerIDRef.current,
+      roundStartedAt,
       wantsToSkip: false,
-      skipStatusTime,
-      playerId: currentPlayerRef.current,
-      playerNickname: `Player-${currentPlayerRef.current.slice(0, 5)}`,
     });
   }
   async function handleNewRoundEvent(data: GameState) {
     const { round, roundStartedAt, numbers, target, complexity } = data;
     updateRound(round, roundStartedAt, numbers, target, complexity);
-    const skipStatusTime = Date.now();
-    gameChannelRef.current?.send({
-      type: "broadcast",
-      event: CHANGE_SKIP_STATUS_EVENT,
-      payload: {
-        playerId: currentPlayerRef.current,
+    const updatedPlayers: PlayerStates = {};
+    for (const [playerId, playerInfo] of Object.entries(playersRef.current)) {
+      updatedPlayers[playerId] = {
+        ...playerInfo,
         wantsToSkip: false,
-        skipStatusTime,
-      },
-    });
+      };
+    }
+    playersRef.current = updatedPlayers;
+    setPlayers(updatedPlayers);
+
     await gameChannelRef.current?.track({
+      playerId: currentPlayerIDRef.current,
+      roundStartedAt,
       wantsToSkip: false,
-      skipStatusTime,
-      playerId: currentPlayerRef.current,
-      playerNickname: `Player-${currentPlayerRef.current.slice(0, 5)}`,
     });
   }
-  function handleRightAnswerEvent(data: RightAnswerData) {
+  async function handleRightAnswerEvent(data: RightAnswerData) {
     const { submitterId, points } = data;
-    playersRef.current = playersRef.current.map((player) =>
-      player.id === submitterId
-        ? {
-            ...player,
-            score: player.score + points,
-          }
-        : player
-    );
+    playersRef.current = {
+      ...playersRef.current,
+      [submitterId]: {
+        ...playersRef.current[submitterId],
+        score: playersRef.current[submitterId].score + points,
+      },
+    };
     console.log(
       `Player ${submitterId} answered correctly and earned ${points} points!`
     );
     setPlayers(playersRef.current);
+    if (currentPlayerIDRef.current !== game.host_id) return;
+    const { error } = await supabase
+      .from("anonymous-game-players")
+      .update({
+        score: playersRef.current[submitterId].score,
+      })
+      .eq("game_id", game.id)
+      .eq("player_id", submitterId);
+    if (error) {
+      console.log(
+        `Error while updating ${submitterId}'s score in the db`,
+        error
+      );
+    }
   }
   function handleWrongAnswerEvent(data: WrongAnswerData) {
     const { submitterId, answer, value, error } = data;
-    if (submitterId !== currentPlayerRef.current) return;
+    if (submitterId !== currentPlayerIDRef.current) return;
     if (error) {
       console.log(`Error evaluating expression "${answer}":`, error);
       return;
@@ -493,13 +593,28 @@ export default function Game({ loaderData }: Route.ComponentProps) {
   function handleGameOverEvent() {
     console.log("Game over handled via event");
   }
-  function handleSyncEvent(
+  async function handleSyncEvent(
     newState: RealtimePresenceState<RealtimePlayerState>
   ) {
-    console.log(playersRef.current);
-    updatePlayers(playersRef.current, newState);
-    if (currentPlayerRef.current !== game.host_id) return;
-    if (playersRef.current.some((p) => p.active && !p.wantsToSkip)) return;
+    console.log("From handleSync", playersRef.current);
+    await updateActivePlayers(newState);
+    console.log("debug", playersRef.current, newState);
+    console.log(gameStatus, gameStatusRef.current);
+    if (
+      gameStatusRef.current !== "playing" ||
+      currentPlayerIDRef.current !== game.host_id
+    )
+      return;
+    console.log("Ready to check for skip");
+    for (const [playerId, playerInfo] of Object.entries(playersRef.current)) {
+      if (playerInfo.active === true && playerInfo.wantsToSkip === false)
+        return;
+      const presences = newState[playerId];
+      if (!presences) continue;
+      console.log(`${playerId}'s presences:`, presences);
+      if (!presences.some((p) => p.wantsToSkip)) return;
+    }
+    console.log("All players want to skip, skipping round...");
     const { numbers, target, round } = gameStateRef.current;
     (async () => {
       const { data, error } = await supabase
@@ -518,24 +633,36 @@ export default function Game({ loaderData }: Route.ComponentProps) {
         console.log("Result saved:", data);
       }
     })();
-    /*
     const { newNumbers, newTarget, newComplexity } = getNewRoundData();
+    const newRoundStartedAt = new Date().toISOString();
     gameChannelRef.current?.send({
       type: "broadcast",
       event: SKIP_ROUND_EVENT,
       payload: {
         round,
+        roundStartedAt: newRoundStartedAt,
         target: newTarget,
         numbers: newNumbers,
         complexity: newComplexity,
       },
     });
-    */
+    const { error } = await supabase
+      .from("anonymous-games")
+      .update({
+        current_round_started_at: newRoundStartedAt,
+        current_target: newTarget,
+        current_numbers: newNumbers,
+        current_complexity: newComplexity,
+      })
+      .eq("id", game.id);
+    if (error) {
+      console.log(`Error while updating game db`, error);
+    }
   }
   function handleGameUpdateEvent(newGameData) {
     console.log("Handling game update event:", newGameData);
-    if (newGameData.status !== gameStatus) {
-      if (newGameData.status === "canceled") {
+    if (newGameData.status !== gameStatusRef.current) {
+      if (newGameData.status === "canceled" || newGameData.status === "ended") {
         gameChannelRef.current?.unsubscribe();
       }
       if (newGameData.status === "timer") {
@@ -544,65 +671,55 @@ export default function Game({ loaderData }: Route.ComponentProps) {
       }
       console.log(
         "Game status changed from",
-        gameStatus,
+        gameStatusRef,
         "to",
         newGameData.status
       );
+      gameStatusRef.current = newGameData.status;
       setGameStatus(newGameData.status);
     }
   }
-
-  function updatePlayers(
-    currentPlayers: PlayerData[],
-    newStatus: RealtimePresenceState<RealtimePlayerState>
-  ) {
-    let nextPlayers = [...currentPlayers];
-    Object.keys(newStatus).forEach((key) => {
-      const presences = newStatus[key];
-      const latestPresence = presences.reduce((latest, presence) =>
-        presence.skipStatusTime > latest.skipStatusTime ? presence : latest
-      );
-      const currentPresence = nextPlayers.find((player) => player.id === key);
-      if (currentPresence) {
-        console.log(
-          "Updating existing player:",
-          key,
-          latestPresence,
-          currentPresence
-        );
-        if (latestPresence.skipStatusTime >= currentPresence.skipStatusTime) {
-          console.log("Updating skip status for player:", key);
-          nextPlayers = nextPlayers.map((player) => {
-            return player.id === key
-              ? {
-                  ...player,
-                  active: true,
-                  wantsToSkip: !!latestPresence.wantsToSkip,
-                  skipStatusTime: latestPresence.skipStatusTime,
-                }
-              : player;
-          });
-        }
-      } else {
-        const newPlayerData: PlayerData = {
-          id: key,
-          nickname: latestPresence.playerNickname,
-          wantsToSkip: !!latestPresence.wantsToSkip,
-          skipStatusTime: latestPresence.skipStatusTime,
-          active: true,
-          score: 0,
-        };
-        nextPlayers.push(newPlayerData);
-      }
-    });
-    for (const player of nextPlayers) {
-      if (!newStatus[player.id]) {
-        player.active = false;
-      }
-    }
-    playersRef.current = nextPlayers;
-    setPlayers(nextPlayers);
+  function handleGamePlayersUpdateEvent(newGamePlayerData) {
+    console.log("Handling game players update event:", newGamePlayerData);
+    const newPresenceState =
+      gameChannelRef.current?.presenceState<RealtimePlayerState>();
+    const newPlayerPresence = newPresenceState?.[newGamePlayerData.player_id];
+    const active = newPlayerPresence ? true : false;
+    const wantsToSkip = newPlayerPresence?.some((p) => p.wantsToSkip)
+      ? true
+      : false;
+    const newPlayerInfo = {
+      nickname: newGamePlayerData.nickname ?? undefined,
+      avatarUrl: newGamePlayerData.avatar_url ?? undefined,
+      wantsToSkip,
+      active,
+      score: newGamePlayerData.score,
+    };
+    const updatedPlayers = {
+      ...playersRef.current,
+      [newGamePlayerData.player_id]: newPlayerInfo,
+    };
+    playersRef.current = updatedPlayers;
+    setPlayers(updatedPlayers);
   }
+
+  function updateActivePlayers(
+    newState: RealtimePresenceState<RealtimePlayerState>
+  ) {
+    const updatedPlayers = { ...playersRef.current };
+    console.log(
+      "Updating active players with presence state:",
+      playersRef.current,
+      newState
+    );
+    for (const playerId of Object.keys(updatedPlayers)) {
+      updatedPlayers[playerId].active = newState[playerId] ? true : false;
+    }
+    console.log("Updated players after active status update:", updatedPlayers);
+    playersRef.current = updatedPlayers;
+    setPlayers(updatedPlayers);
+  }
+
   function updateRound(
     round: number,
     roundStartedAt: string,
@@ -627,9 +744,6 @@ export default function Game({ loaderData }: Route.ComponentProps) {
       target,
       complexity,
     };
-    if (inputRef.current) {
-      inputRef.current.focus();
-    }
   }
 
   async function copyGameLink() {
@@ -668,36 +782,67 @@ export default function Game({ loaderData }: Route.ComponentProps) {
       return;
     }
   }
+  async function joinGame() {
+    if (currentPlayerIDRef.current in playersRef.current) return;
+    const { data: existingPlayers, error: fetchError } = await supabase
+      .from("anonymous-game-players")
+      .select("*")
+      .eq("game_id", game.id);
+    if (fetchError) {
+      console.log("Error checking existing players:", fetchError);
+      return;
+    }
+    if (existingPlayers.length >= game.max_players) {
+      alert("Game is full. Cannot join.");
+      return;
+    }
+    const nickname = prompt("Enter your nickname:");
+    const newPlayer = {
+      game_id: game.id,
+      player_id: currentPlayerIDRef.current,
+      nickname: nickname || undefined,
+      score: 0,
+    };
+    const { error: joinError } = await supabase
+      .from("anonymous-game-players")
+      .insert(newPlayer);
+    if (joinError) {
+      console.log("Error joining game:", joinError);
+      return;
+    }
+    const presenceTrackStatus = await gameChannelRef.current?.track({
+      playerId: currentPlayerIDRef.current,
+      roundStartedAt: gameStateRef.current.roundStartedAt,
+      wantsToSkip: false,
+    });
+    console.log("Presence track status:", presenceTrackStatus);
+    setIsJoined(true);
+  }
   function submitAnswer() {
-    const currentTime =
-      Date.now() - new Date(gameState.roundStartedAt).getTime();
     gameChannelRef.current?.send({
       type: "broadcast",
       event: ANSWER_SUBMIT_EVENT,
       payload: {
-        submitterId: currentPlayerRef.current,
+        submitterId: currentPlayerIDRef.current,
         answer,
-        time: currentTime,
       },
     });
   }
   async function changeSkipStatus(status: boolean) {
     setWantsToSkip(status);
-    const skipStatusTime = Date.now();
     gameChannelRef.current?.send({
       type: "broadcast",
       event: CHANGE_SKIP_STATUS_EVENT,
       payload: {
-        playerId: currentPlayerRef.current,
+        playerId: currentPlayerIDRef.current,
+        roundStartedAt: gameStateRef.current.roundStartedAt,
         wantsToSkip: status,
-        skipStatusTime,
       },
     });
     await gameChannelRef.current?.track({
+      playerId: currentPlayerIDRef.current,
+      roundStartedAt: gameStateRef.current.roundStartedAt,
       wantsToSkip: status,
-      skipStatusTime,
-      playerId: currentPlayerRef.current,
-      playerNickname: `Player-${currentPlayerRef.current.slice(0, 5)}`,
     });
   }
   function handleInputKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -734,7 +879,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
         </div>
         <div className="flex w-full justify-start gap-2">
           {gameStatus === "lobby" ? (
-            game.host_id === currentPlayerRef.current ? (
+            game.host_id === currentPlayerIDRef.current ? (
               <>
                 <Button
                   onClick={handleHostStartGame}
@@ -750,8 +895,12 @@ export default function Game({ loaderData }: Route.ComponentProps) {
                 </Button>
               </>
             ) : (
-              <Button className="bg-background-reverse text-text-reverse hover:bg-background-reverse hover:opacity-90 hover:cursor-pointer active:opacity-80">
-                Join Game
+              <Button
+                onClick={joinGame}
+                disabled={isJoined}
+                className="bg-background-reverse text-text-reverse hover:bg-background-reverse hover:opacity-90 hover:cursor-pointer active:opacity-80"
+              >
+                {isJoined ? "Joined" : "Join Game"}
               </Button>
             )
           ) : null}
@@ -760,37 +909,36 @@ export default function Game({ loaderData }: Route.ComponentProps) {
       {gameStatus === "lobby" ? (
         <div className="flex flex-col min-[900px]:ml-12 gap-6 w-full min-[900px]:w-sm max-w-[32rem]">
           <h2 className="flex text-2xl sm:text-3xl h-[54px] items-center">
-            Players ({players.length}/{game.max_players})
+            Players ({Object.keys(players).length}/{game.max_players})
           </h2>
           <div className="flex flex-col gap-6">
-            {players.map((user) => (
-              <div key={user.id} className="flex w-full items-center">
+            {Object.entries(players).map(([userId, player]) => (
+              <div key={userId} className="flex w-full items-center">
                 <div>
-                  {user.avatarUrl ? (
+                  {player.avatarUrl ? (
                     <img
                       className="rounded-full w-14 aspect-square"
-                      src={user.avatarUrl}
-                      alt={user.nickname}
+                      src={player.avatarUrl}
+                      alt={player.nickname ?? `Player-${userId.slice(0, 5)}`}
                     />
                   ) : (
                     <div className="flex items-center justify-center rounded-full w-14 aspect-square text-3xl bg-gray-300 dark:bg-gray-600">
-                      {user.nickname.slice(0, 2).toUpperCase()}
+                      {player.nickname?.slice(0, 2).toUpperCase() ??
+                        userId.slice(0, 2).toUpperCase()}
                     </div>
                   )}
                 </div>
                 <div className="flex flex-col justify-center px-4 flex-grow">
                   <div className="text-lg font-medium">
-                    {user.nickname}
-                    {user.active ? "" : " (Disconnected)"}
+                    {player.nickname ?? `Player-${userId.slice(0, 5)}`}
+                    {userId === game.host_id ? " (Host)" : ""}
+                    {player.active ? "" : " (Disconnected)"}
                   </div>
-                  {user.wantsToSkip ? (
+                  {player.wantsToSkip ? (
                     <div className="text-sm text-green-700 dark:text-green-500">
                       Wants to skip
                     </div>
                   ) : null}
-                </div>
-                <div className="flex items-center font-semibold text-xl">
-                  {user.score} Points
                 </div>
               </div>
             ))}
@@ -870,37 +1018,39 @@ export default function Game({ loaderData }: Route.ComponentProps) {
       </div>
       <div className="flex flex-col xl:ml-12 gap-6 w-full xl:w-sm max-w-[50rem]">
         <h2 className="flex text-2xl sm:text-3xl h-[54px] items-center">
-          Players ({players.length}/{game.max_players})
+          Players ({Object.keys(players).length}/{game.max_players})
         </h2>
         <div className="flex flex-col gap-6">
-          {players.map((user) => (
-            <div key={user.id} className="flex w-full rounded-2xl items-center">
+          {Object.entries(players).map(([userId, player]) => (
+            <div key={userId} className="flex w-full rounded-2xl items-center">
               <div>
-                {user.avatarUrl ? (
+                {player.avatarUrl ? (
                   <img
                     className="rounded-full w-14 aspect-square"
-                    src={user.avatarUrl}
-                    alt={user.nickname}
+                    src={player.avatarUrl}
+                    alt={player.nickname ?? `Players-${userId.slice(0, 5)}`}
                   />
                 ) : (
                   <div className="flex items-center justify-center rounded-full w-14 aspect-square text-3xl bg-gray-300 dark:bg-gray-600">
-                    {user.nickname.slice(0, 2).toUpperCase()}
+                    {player.nickname?.slice(0, 2).toUpperCase() ??
+                      userId.slice(0, 2).toUpperCase()}
                   </div>
                 )}
               </div>
               <div className="flex flex-col justify-center px-4 flex-grow">
                 <div className="text-lg font-medium">
-                  {user.nickname}
-                  {user.active ? "" : " (Disconnected)"}
+                  {player.nickname ?? `Players-${userId.slice(0, 5)}`}
+                  {userId === game.host_id ? " (Host)" : ""}
+                  {player.active ? "" : " (Disconnected)"}
                 </div>
-                {user.wantsToSkip ? (
+                {player.wantsToSkip ? (
                   <div className="text-sm text-green-700 dark:text-green-500">
                     Wants to skip
                   </div>
                 ) : null}
               </div>
               <div className="flex items-center font-semibold text-xl">
-                {user.score} Points
+                {player.score} Points
               </div>
             </div>
           ))}
