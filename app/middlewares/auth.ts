@@ -9,7 +9,7 @@ export const authMiddleware = async ({ request, context }) => {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    throw redirect("/login");
+    throw redirect("/not-implemented");
   }
 
   context.set(userContext, user);
