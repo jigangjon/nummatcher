@@ -1,9 +1,22 @@
 import { useTheme } from "next-themes";
 import { useEffect, useRef, useState } from "react";
 import { Form, Link, Outlet, useOutletContext } from "react-router";
+import type { Route } from "./+types/header";
+import { createClient } from "~/lib/supabase/server";
+import type { User } from "@supabase/supabase-js";
 
-export default function Header() {
-  const { user } = useOutletContext();
+type UserContextType = { user: User | null };
+
+export async function loader({ request }: Route.LoaderArgs) {
+  const { supabase } = createClient(request);
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  return { user };
+}
+
+export default function Header({ loaderData }: Route.ComponentProps) {
+  const { user } = loaderData;
   const { theme, setTheme, systemTheme } = useTheme();
   const [hideDropdown, setHideDropdown] = useState(true);
   const ref = useRef<HTMLDivElement>(null);
@@ -95,10 +108,14 @@ export default function Header() {
         )}
       </header>
       <main className="grow p-6 bg-background-dark">
-        <Outlet context={{ user }} />
+        <Outlet context={{ user } satisfies UserContextType} />
       </main>
     </div>
   );
+}
+
+export function useUser() {
+  return useOutletContext<UserContextType>();
 }
 
 function HeaderItem({

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Route } from "./+types/game";
 import type {
   RealtimeChannel,
+  RealtimePostgresUpdatePayload,
   RealtimePresenceState,
 } from "@supabase/supabase-js";
 import Fraction from "fraction.js";
@@ -22,6 +23,7 @@ import { parse, ParseError } from "~/utils/pratt-parser";
 import { evaluateAST, FractionError, simplify } from "~/utils/evaluator";
 
 import precomputedBasicCombinations from "../data/precomputed-basic-combinations.json" with { type: "json" };
+import type { Tables } from "~/types/supabase";
 
 // TODO: prevent fake timers
 // TODO: server control instead of host control
@@ -70,7 +72,6 @@ type RealtimePlayerState = {
 };
 
 export async function loader({ params, request }: Route.LoaderArgs) {
-  console.log("Loading game with ID:", params.gameId);
   const { supabase, headers } = createClient(request);
   const { data, error } = await supabase
     .from("anonymous-games")
@@ -78,7 +79,7 @@ export async function loader({ params, request }: Route.LoaderArgs) {
     .eq("id", params.gameId)
     .single();
   if (error) {
-    console.log("Error loading game:", error);
+    console.error("Error loading game:", error);
     throw new Response("Game not found", { status: 404 });
   }
   return { game: data, headers };
@@ -161,7 +162,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
           .select("*")
           .eq("game_id", game.id);
         if (error) {
-          console.log("Error fetching initial players:", error);
+          console.error("Error fetching initial players:", error);
           return;
         }
         const initialPlayers: PlayerStates = {};
@@ -229,7 +230,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
           table: "anonymous-games",
           filter: `id=eq.${game.id}`,
         },
-        (payload) => {
+        (payload: RealtimePostgresUpdatePayload<Tables<"anonymous-games">>) => {
           handleGameUpdateEvent(payload.new);
         }
       )
@@ -241,7 +242,11 @@ export default function Game({ loaderData }: Route.ComponentProps) {
           table: "anonymous-game-players",
           filter: `game_id=eq.${game.id}`,
         },
-        (payload) => {
+        (
+          payload: RealtimePostgresUpdatePayload<
+            Tables<"anonymous-game-players">
+          >
+        ) => {
           handleGamePlayersUpdateEvent(payload.new);
         }
       )
@@ -259,7 +264,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
           .select("*")
           .eq("game_id", game.id);
         if (error) {
-          console.log("Error fetching initial players:", error);
+          console.error("Error fetching initial players:", error);
           return;
         }
         if (data.some((p) => p.player_id === currentPlayerIDRef.current)) {
@@ -268,12 +273,10 @@ export default function Game({ loaderData }: Route.ComponentProps) {
             roundStartedAt: gameStateRef.current.roundStartedAt,
             wantsToSkip: false,
           });
-          console.log("Presence track status:", presenceTrackStatus);
           setIsJoined(true);
         }
         const initialPlayers: PlayerStates = {};
         const presences = gameChannel.presenceState<RealtimePlayerState>();
-        console.log("Initial players data:", data);
         for (const player of data) {
           initialPlayers[player.player_id] = {
             nickname: player.nickname ?? undefined,
@@ -287,7 +290,6 @@ export default function Game({ loaderData }: Route.ComponentProps) {
             score: player.score,
           };
         }
-        console.log("Initial players constructed:", initialPlayers);
         playersRef.current = initialPlayers;
         setPlayers(initialPlayers);
       });
@@ -301,10 +303,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
     if ((gameStatus !== "timer" && gameStatus !== "playing") || !gameStartedAt)
       return;
     if (gameStatus === "playing") {
-      console.log("Setting up round timer...");
-      console.log("Game state ref:", gameStateRef.current);
       if (!gameStateRef.current.roundStartedAt) return;
-      console.log("Round started at:", gameStateRef.current.roundStartedAt);
       const tick = async () => {
         const endsAt =
           new Date(gameStateRef.current.roundStartedAt).getTime() +
@@ -338,7 +337,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
             })
             .eq("id", game.id);
           if (error) {
-            console.log("Error updating game status to playing:", error);
+            console.error("Error updating game status to playing:", error);
           }
         }
       };
@@ -379,7 +378,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
           })
           .eq("id", game.id);
         if (error) {
-          console.log("Error updating game status to playing:", error);
+          console.error("Error updating game status to playing:", error);
         }
       }
     };
@@ -419,7 +418,6 @@ export default function Game({ loaderData }: Route.ComponentProps) {
       const simplified = simplify(ast);
       const result = evaluateAST(simplified, options.unaryMinus);
       if (result.equals(new Fraction(target))) {
-        console.log("Correct!");
         gameChannelRef.current?.send({
           type: "broadcast",
           event: RIGHT_ANSWER_EVENT,
@@ -428,25 +426,6 @@ export default function Game({ loaderData }: Route.ComponentProps) {
             points: calculatePoints(complexity),
           },
         });
-        (async () => {
-          const { data, error } = await supabase
-            .from("num-match-test-history")
-            .insert({
-              operators,
-              number_range: numberSet,
-              round,
-              target,
-              numbers,
-              answer,
-              result: "correct",
-              time_taken_ms: timeItTook,
-            });
-          if (error) {
-            console.log("Error saving result:", error);
-          } else {
-            console.log("Result saved:", data);
-          }
-        })();
         if (round === game.rounds) {
           gameChannelRef.current?.send({
             type: "broadcast",
@@ -460,7 +439,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
             })
             .eq("id", game.id);
           if (error) {
-            console.log("Error while updating game status in db", error);
+            console.error("Error while updating game status in db", error);
           }
           return;
         }
@@ -488,7 +467,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
           })
           .eq("id", game.id);
         if (error) {
-          console.log("Error while updating game db", error);
+          console.error("Error while updating game db", error);
         }
       } else {
         gameChannelRef.current?.send({
@@ -608,9 +587,6 @@ export default function Game({ loaderData }: Route.ComponentProps) {
         score: playersRef.current[submitterId].score + points,
       },
     };
-    console.log(
-      `Player ${submitterId} answered correctly and earned ${points} points!`
-    );
     setPlayers(playersRef.current);
     if (currentPlayerIDRef.current !== game.host_id) return;
     const { error } = await supabase
@@ -621,7 +597,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
       .eq("game_id", game.id)
       .eq("player_id", submitterId);
     if (error) {
-      console.log(
+      console.error(
         `Error while updating ${submitterId}'s score in the db`,
         error
       );
@@ -650,43 +626,20 @@ export default function Game({ loaderData }: Route.ComponentProps) {
   async function handleSyncEvent(
     newState: RealtimePresenceState<RealtimePlayerState>
   ) {
-    console.log("From handleSync", playersRef.current);
     await updateActivePlayers(newState);
-    console.log("debug", playersRef.current, newState);
-    console.log(gameStatus, gameStatusRef.current);
     if (
       gameStatusRef.current !== "playing" ||
       currentPlayerIDRef.current !== game.host_id
     )
       return;
-    console.log("Ready to check for skip");
     for (const [playerId, playerInfo] of Object.entries(playersRef.current)) {
       if (playerInfo.active === true && playerInfo.wantsToSkip === false)
         return;
       const presences = newState[playerId];
       if (!presences) continue;
-      console.log(`${playerId}'s presences:`, presences);
       if (!presences.some((p) => p.wantsToSkip)) return;
     }
-    console.log("All players want to skip, skipping round...");
     const { numbers, target, round } = gameStateRef.current;
-    (async () => {
-      const { data, error } = await supabase
-        .from("num-match-test-history")
-        .insert({
-          operators,
-          number_range: numberSet,
-          round,
-          target,
-          numbers,
-          result: "skipped",
-        });
-      if (error) {
-        console.log("Error saving result:", error);
-      } else {
-        console.log("Result saved:", data);
-      }
-    })();
     const { newNumbers, newTarget, newComplexity } = getNewRoundData();
     const newRoundStartedAt = new Date().toISOString();
     gameChannelRef.current?.send({
@@ -710,31 +663,25 @@ export default function Game({ loaderData }: Route.ComponentProps) {
       })
       .eq("id", game.id);
     if (error) {
-      console.log(`Error while updating game db`, error);
+      console.error(`Error while updating game db`, error);
     }
   }
-  function handleGameUpdateEvent(newGameData) {
-    console.log("Handling game update event:", newGameData);
+  function handleGameUpdateEvent(newGameData: Tables<"anonymous-games">) {
     if (newGameData.status !== gameStatusRef.current) {
       if (newGameData.status === "canceled" || newGameData.status === "ended") {
         gameChannelRef.current?.unsubscribe();
       }
       if (newGameData.status === "timer") {
-        const startedAt = new Date(newGameData.game_started_at).getTime();
+        const startedAt = new Date(newGameData.game_started_at!).getTime();
         setGameStartedAt(startedAt);
       }
-      console.log(
-        "Game status changed from",
-        gameStatusRef,
-        "to",
-        newGameData.status
-      );
       gameStatusRef.current = newGameData.status;
       setGameStatus(newGameData.status);
     }
   }
-  function handleGamePlayersUpdateEvent(newGamePlayerData) {
-    console.log("Handling game players update event:", newGamePlayerData);
+  function handleGamePlayersUpdateEvent(
+    newGamePlayerData: Tables<"anonymous-game-players">
+  ) {
     const newPresenceState =
       gameChannelRef.current?.presenceState<RealtimePlayerState>();
     const newPlayerPresence = newPresenceState?.[newGamePlayerData.player_id];
@@ -802,15 +749,9 @@ export default function Game({ loaderData }: Route.ComponentProps) {
     newState: RealtimePresenceState<RealtimePlayerState>
   ) {
     const updatedPlayers = { ...playersRef.current };
-    console.log(
-      "Updating active players with presence state:",
-      playersRef.current,
-      newState
-    );
     for (const playerId of Object.keys(updatedPlayers)) {
       updatedPlayers[playerId].active = newState[playerId] ? true : false;
     }
-    console.log("Updated players after active status update:", updatedPlayers);
     playersRef.current = updatedPlayers;
     setPlayers(updatedPlayers);
   }
@@ -854,7 +795,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
       })
       .eq("id", game.id);
     if (error) {
-      console.log("Error starting game:", error);
+      console.error("Error starting game:", error);
       return;
     }
   }
@@ -866,7 +807,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
       })
       .eq("id", game.id);
     if (error) {
-      console.log("Error canceling game:", error);
+      console.error("Error canceling game:", error);
       return;
     }
   }
@@ -877,7 +818,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
       .select("*")
       .eq("game_id", game.id);
     if (fetchError) {
-      console.log("Error checking existing players:", fetchError);
+      console.error("Error checking existing players:", fetchError);
       return;
     }
     if (existingPlayers.length >= game.max_players) {
@@ -895,7 +836,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
       .from("anonymous-game-players")
       .insert(newPlayer);
     if (joinError) {
-      console.log("Error joining game:", joinError);
+      console.error("Error joining game:", joinError);
       return;
     }
     const presenceTrackStatus = await gameChannelRef.current?.track({
@@ -903,7 +844,6 @@ export default function Game({ loaderData }: Route.ComponentProps) {
       roundStartedAt: gameStateRef.current.roundStartedAt,
       wantsToSkip: false,
     });
-    console.log("Presence track status:", presenceTrackStatus);
     setIsJoined(true);
   }
   function submitAnswer() {

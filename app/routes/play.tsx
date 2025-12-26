@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useOutletContext } from "react-router";
+import { Link } from "react-router";
 import { Button } from "~/components/ui/button";
 import {
   type GameConfig,
@@ -10,10 +10,11 @@ import {
 import type { Route } from "./+types/play";
 import supabase from "~/lib/supabase/client";
 import { cn } from "~/lib/utils";
+import { useUser } from "~/layouts/header";
 
 export default function Play({ loaderData }: Route.ComponentProps) {
   const [gameList, setGameList] = useState<GameBrief[]>([]);
-  const { user } = useOutletContext();
+  const { user } = useUser();
   if (!user)
     return (
       <button className="bg-background border-2 border-border">

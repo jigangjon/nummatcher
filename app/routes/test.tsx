@@ -11,6 +11,7 @@ import {
 import type { Route } from "./+types/test";
 import { authMiddleware } from "~/middlewares/auth";
 import supabase from "~/lib/supabase/client";
+import type { Tables, TablesInsert, TablesUpdate } from "~/types/supabase";
 
 export const middleware: Route.MiddlewareFunction[] = [authMiddleware];
 
@@ -44,6 +45,10 @@ export default function Test() {
       setExpr("");
     }
   }
+
+  type A = TablesUpdate<"anonymous-games">;
+  type B = Tables<"anonymous-games">;
+  type C = TablesInsert<"anonymous-games">;
   return (
     <>
       <div className="flex justify-between items-center w-full relative">
