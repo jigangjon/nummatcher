@@ -94,7 +94,7 @@ export default function Header() {
           </>
         )}
       </header>
-      <main className="flex-grow p-6 bg-background-dark">
+      <main className="grow p-6 bg-background-dark">
         <Outlet context={{ user }} />
       </main>
     </div>
