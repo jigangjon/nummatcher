@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
-import { Form, redirect, useNavigation, useOutletContext } from "react-router";
+import { Form, redirect, useNavigation } from "react-router";
 import { Input } from "~/components/ui/input";
 import {
-  ALL_OPERATOR_SYMBOLS,
   BASIC_OPERATOR_SYMBOLS,
   getAnonymousPlayerId,
   type OperatorSymbol,
@@ -12,7 +11,7 @@ import { createClient } from "~/lib/supabase/server";
 import { useTheme } from "next-themes";
 
 export default function CreateGame() {
-  const { theme } = useTheme();
+  const { theme, systemTheme } = useTheme();
   const [hostId, setHostId] = useState("");
   const [hostName, setHostName] = useState("");
   const [rounds, setRounds] = useState(20);
@@ -110,26 +109,51 @@ export default function CreateGame() {
                 >
                   <stop
                     offset="0"
-                    stop-color={theme === "light" ? "#000000" : "#FFFFFF"}
+                    stop-color={
+                      theme === "light" ||
+                      (theme == null && systemTheme === "light")
+                        ? "#000000"
+                        : "#FFFFFF"
+                    }
                   ></stop>
                   <stop
                     offset=".3"
-                    stop-color={theme === "light" ? "#000000" : "#FFFFFF"}
+                    stop-color={
+                      theme === "light" ||
+                      (theme == null && systemTheme === "light")
+                        ? "#000000"
+                        : "#FFFFFF"
+                    }
                     stop-opacity=".9"
                   ></stop>
                   <stop
                     offset=".6"
-                    stop-color={theme === "light" ? "#000000" : "#FFFFFF"}
+                    stop-color={
+                      theme === "light" ||
+                      (theme == null && systemTheme === "light")
+                        ? "#000000"
+                        : "#FFFFFF"
+                    }
                     stop-opacity=".6"
                   ></stop>
                   <stop
                     offset=".8"
-                    stop-color={theme === "light" ? "#000000" : "#FFFFFF"}
+                    stop-color={
+                      theme === "light" ||
+                      (theme == null && systemTheme === "light")
+                        ? "#000000"
+                        : "#FFFFFF"
+                    }
                     stop-opacity=".3"
                   ></stop>
                   <stop
                     offset="1"
-                    stop-color={theme === "light" ? "#000000" : "#FFFFFF"}
+                    stop-color={
+                      theme === "light" ||
+                      (theme == null && systemTheme === "light")
+                        ? "#000000"
+                        : "#FFFFFF"
+                    }
                     stop-opacity="0"
                   ></stop>
                 </radialGradient>
@@ -160,7 +184,12 @@ export default function CreateGame() {
                   transform-origin="center"
                   fill="none"
                   opacity=".2"
-                  stroke={theme === "light" ? "#000000" : "#FFFFFF"}
+                  stroke={
+                    theme === "light" ||
+                    (theme == null && systemTheme === "light")
+                      ? "#000000"
+                      : "#FFFFFF"
+                  }
                   stroke-width="15"
                   stroke-linecap="round"
                   cx="100"

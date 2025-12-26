@@ -4,7 +4,7 @@ import {
   ALL_OPERATOR_SYMBOLS,
   BASIC_OPERATOR_SYMBOLS,
   EXTENDED_OPERATOR_SYMBOLS,
-  getTokensAndOptions,
+  getOperatorSymbolsAndOptions,
   matchDefaultOperators,
   type GameBrief,
 } from "~/utils/games";
@@ -65,7 +65,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
       .subscribe();
   }, []);
 
-  const { tokens: allowedOperators, options } = getTokensAndOptions(
+  const { tokens: allowedOperators, options } = getOperatorSymbolsAndOptions(
     game.operators
   );
   function calculatePoints(complexity: number) {

@@ -4,7 +4,7 @@ import type { Route } from "./+types/signup";
 import { Button } from "~/components/ui/button";
 import { createClient } from "~/lib/supabase/server";
 import { userContext } from "~/context";
-import { authMiddleware } from "~/middleware/auth";
+import { authMiddleware } from "~/middlewares/auth";
 
 export const middleware: Route.MiddlewareFunction[] = [authMiddleware];
 

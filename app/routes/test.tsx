@@ -9,7 +9,7 @@ import {
   parse,
 } from "~/utils/pratt-parser";
 import type { Route } from "./+types/test";
-import { authMiddleware } from "~/middleware/auth";
+import { authMiddleware } from "~/middlewares/auth";
 import supabase from "~/lib/supabase/client";
 
 export const middleware: Route.MiddlewareFunction[] = [authMiddleware];

@@ -16,6 +16,7 @@ export default [
     route("account", "routes/account.tsx"),
     route("play", "routes/play.tsx"),
     route("test", "routes/test.tsx"),
+    route("not-implemented", "routes/not-implemented.tsx"),
   ]),
   route("logout", "routes/logout-handler.tsx"),
 ] satisfies RouteConfig;

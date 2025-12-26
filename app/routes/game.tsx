@@ -1,24 +1,27 @@
 import { useEffect, useRef, useState } from "react";
 import type { Route } from "./+types/game";
-import {
-  BASIC_OPERATOR_SYMBOLS,
-  getAnonymousPlayerId,
-  getTokensAndOptions,
-  matchDefaultOperators,
-} from "~/utils/games";
-import { Input } from "~/components/ui/input";
-import { parse, ParseError } from "~/utils/pratt-parser";
-import { evaluateAST, FractionError, simplify } from "~/utils/evaluator";
-import supabase from "~/lib/supabase/client";
-import Fraction from "fraction.js";
-import precomputedBasicCombinations from "../data/precomputed-basic-combinations.json" with { type: "json" };
-import { Button } from "~/components/ui/button";
 import type {
   RealtimeChannel,
   RealtimePresenceState,
 } from "@supabase/supabase-js";
-import { createClient } from "~/lib/supabase/server";
+import Fraction from "fraction.js";
 import MobileDetect from "mobile-detect";
+
+import supabase from "~/lib/supabase/client";
+import { createClient } from "~/lib/supabase/server";
+import { Input } from "~/components/ui/input";
+import { Button } from "~/components/ui/button";
+
+import {
+  BASIC_OPERATOR_SYMBOLS,
+  getAnonymousPlayerId,
+  getOperatorSymbolsAndOptions,
+  matchDefaultOperators,
+} from "~/utils/games";
+import { parse, ParseError } from "~/utils/pratt-parser";
+import { evaluateAST, FractionError, simplify } from "~/utils/evaluator";
+
+import precomputedBasicCombinations from "../data/precomputed-basic-combinations.json" with { type: "json" };
 
 // TODO: prevent fake timers
 // TODO: server control instead of host control
@@ -83,9 +86,8 @@ export async function loader({ params, request }: Route.LoaderArgs) {
 
 export default function Game({ loaderData }: Route.ComponentProps) {
   const { game } = loaderData;
-  const { tokens: allowedOperators, options } = getTokensAndOptions(
-    BASIC_OPERATOR_SYMBOLS
-  );
+  const { operatorSymbols: allowedOperators, options } =
+    getOperatorSymbolsAndOptions(BASIC_OPERATOR_SYMBOLS);
   const operators = BASIC_OPERATOR_SYMBOLS;
   const numberSet = [10, 10, 10, 10];
   const WAITING_MAX_MS = 3000;

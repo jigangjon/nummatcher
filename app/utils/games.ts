@@ -18,7 +18,9 @@ export type OperatorSymbol =
   | "+"
   | "-"
   | "*"
+  | "×"
   | "/"
+  | "÷"
   | "!"
   | "^"
   | "**"
@@ -32,12 +34,21 @@ export type OperatorSymbol =
   | "."
   | "leading .";
 
-export const BASIC_OPERATOR_SYMBOLS: OperatorSymbol[] = ["+", "-", "*", "/"];
+export const BASIC_OPERATOR_SYMBOLS: OperatorSymbol[] = [
+  "+",
+  "-",
+  "*",
+  "×",
+  "/",
+  "÷",
+];
 export const EXTENDED_OPERATOR_SYMBOLS: OperatorSymbol[] = [
   "+",
   "-",
   "*",
+  "×",
   "/",
+  "÷",
   "!",
   "^",
   "**",
@@ -48,7 +59,9 @@ export const ALL_OPERATOR_SYMBOLS: OperatorSymbol[] = [
   "+",
   "-",
   "*",
+  "×",
   "/",
+  "÷",
   "!",
   "^",
   "**",
@@ -65,7 +78,7 @@ export const ALL_OPERATOR_SYMBOLS: OperatorSymbol[] = [
 
 export const SPECIAL_OPERATORS = ["concat", ".", "unary -"];
 
-export function getTokensAndOptions(symbols: OperatorSymbol[]) {
+export function getOperatorSymbolsAndOptions(symbols: OperatorSymbol[]) {
   const decimalOption = symbols.includes("leading .")
     ? DecimalOptions.LEADING
     : symbols.includes(".")
@@ -77,8 +90,8 @@ export function getTokensAndOptions(symbols: OperatorSymbol[]) {
     unaryMinus: symbols.includes("unary -"),
   };
   const operators = symbols.filter((s) => !SPECIAL_OPERATORS.includes(s));
-  const tokens = [...operators, "(", ")", "[", "]", ","];
-  return { tokens, options };
+  const operatorSymbols = [...operators, "(", ")", "[", "]", ","];
+  return { operatorSymbols, options };
 }
 
 export function matchDefaultOperators(operators: OperatorSymbol[]) {
