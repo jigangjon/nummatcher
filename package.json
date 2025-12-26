@@ -9,12 +9,12 @@
     "typecheck": "react-router typegen && tsc"
   },
   "dependencies": {
+    "@netlify/vite-plugin-react-router": "^2.1.2",
     "@radix-ui/react-slot": "^1.2.3",
     "@react-router/node": "^7.7.1",
     "@react-router/serve": "^7.7.1",
     "@supabase/ssr": "^0.7.0",
     "@supabase/supabase-js": "^2.89.0",
-    "@vercel/react-router": "^1.2.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "fraction.js": "^5.3.4",
