@@ -143,7 +143,6 @@ export default function Game({ loaderData }: Route.ComponentProps) {
   const RIGHT_ANSWER_ALERT = "right-answer";
   const WRONG_ANSWER_ALERT = "wrong-answer";
   const SKIP_ROUND_ALERT = "skip-round";
-  const NEW_ROUND_ALERT = "new-round";
 
   useEffect(() => {
     if (gameStatusRef.current === "canceled") return;
@@ -561,17 +560,6 @@ export default function Game({ loaderData }: Route.ComponentProps) {
   async function handleNewRoundEvent(data: GameState) {
     const { round, roundStartedAt, numbers, target, complexity } = data;
     updateRound(round, roundStartedAt, numbers, target, complexity);
-
-    setEventAlertType(NEW_ROUND_ALERT);
-    setEventAlertMessage(`New round started`);
-    if (alertTimeoutRef.current !== null) {
-      clearTimeout(alertTimeoutRef.current);
-    }
-    alertTimeoutRef.current = window.setTimeout(() => {
-      setEventAlertType(null);
-      setEventAlertMessage(null);
-      alertTimeoutRef.current = null;
-    }, 2000);
 
     const updatedPlayers: PlayerStates = {};
     for (const [playerId, playerInfo] of Object.entries(playersRef.current)) {
@@ -1054,8 +1042,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-warning opacity-85 text-text-reverse rounded-md px-4 py-2 line-clamp-2">
               {eventAlertMessage}
             </div>
-          ) : eventAlertType === SKIP_ROUND_ALERT ||
-            eventAlertType === NEW_ROUND_ALERT ? (
+          ) : eventAlertType === SKIP_ROUND_ALERT ? (
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-info opacity-85 text-text-reverse rounded-md px-4 py-2 line-clamp-2">
               {eventAlertMessage}
             </div>
