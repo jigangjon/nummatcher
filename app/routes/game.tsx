@@ -18,9 +18,11 @@ import type {
   RealtimePresenceState,
 } from "@supabase/supabase-js";
 import { createClient } from "~/lib/supabase/server";
+import MobileDetect from "mobile-detect";
 
 // TODO: prevent fake timers
 // TODO: server control instead of host control
+// TODO: players truncate ui fix
 
 type AnswerSubmitData = {
   submitterId: string;
@@ -130,6 +132,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
   const playersRef = useRef<PlayerStates>({});
   const roundEndingRef = useRef(false);
   const alertTimeoutRef = useRef<number | null>(null);
+  const deviceTypeRef = useRef<MobileDetect | null>(null);
 
   const GAME_START_EVENT = "game-start";
   const CHANGE_SKIP_STATUS_EVENT = "change-skip-status";
@@ -145,6 +148,8 @@ export default function Game({ loaderData }: Route.ComponentProps) {
   const SKIP_ROUND_ALERT = "skip-round";
 
   useEffect(() => {
+    const md = new MobileDetect(window.navigator.userAgent);
+    deviceTypeRef.current = md;
     if (gameStatusRef.current === "canceled") return;
 
     if (gameStatusRef.current === "ended") {
@@ -937,18 +942,24 @@ export default function Game({ loaderData }: Route.ComponentProps) {
       changeSkipStatus(!wantsToSkip);
     }
   }
+  function handleBeforeInput(e: React.FormEvent<HTMLInputElement>) {
+    if (deviceTypeRef.current?.mobile() && e.data === " ") {
+      e.preventDefault();
+      changeSkipStatus(!wantsToSkip);
+    }
+  }
 
   return gameStatus === "lobby" || gameStatus === "canceled" ? (
     <div className="flex flex-col items-center gap-6 min-[900px]:flex-row min-[900px]:justify-center min-[900px]:items-start">
-      <div className="flex flex-col gap-6 justify-center items-center w-full max-w-[32rem] min-[900px]:max-w-[24rem]">
-        <div className="flex justify-between items-center gap-2 w-full h-[54px]">
+      <div className="flex flex-col gap-6 justify-center items-center w-full max-w-lg min-[900px]:max-w-[24rem]">
+        <div className="flex justify-between items-center gap-2 w-full h-13.5">
           <div className="flex grow text-2xl sm:text-3xl">
             {gameStatus === "lobby" ? "Lobby" : "Game Canceled"}
           </div>
           {gameStatus === "lobby" ? (
             <Button
               onClick={copyGameLink}
-              className="bg-background-light border-1 border-border hover:bg-background-light hover:opacity-90 hover:cursor-pointer active:opacity-80"
+              className="bg-background-light border border-border hover:bg-background-light hover:opacity-90 hover:cursor-pointer active:opacity-80"
             >
               {isCopied ? "Copied!" : "Copy Link"}
             </Button>
@@ -990,8 +1001,8 @@ export default function Game({ loaderData }: Route.ComponentProps) {
         </div>
       </div>
       {gameStatus === "lobby" ? (
-        <div className="flex flex-col min-[900px]:ml-12 gap-6 w-full min-[900px]:w-sm max-w-[32rem]">
-          <h2 className="flex text-2xl sm:text-3xl h-[54px] items-center">
+        <div className="flex flex-col min-[900px]:ml-12 gap-6 w-full min-[900px]:w-sm max-w-lg">
+          <h2 className="flex text-2xl sm:text-3xl h-13.5 items-center">
             Players ({Object.keys(players).length}/{game.max_players})
           </h2>
           <div className="flex flex-col gap-6">
@@ -1011,7 +1022,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
                     </div>
                   )}
                 </div>
-                <div className="flex flex-col justify-center px-4 flex-grow">
+                <div className="flex flex-col justify-center px-4 grow">
                   <div className="text-lg font-medium">
                     {player.nickname ?? `Player-${userId.slice(0, 5)}`}
                     {userId === currentPlayerIDRef.current ? " (You)" : ""}
@@ -1032,7 +1043,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
     </div>
   ) : gameStatus === "playing" || gameStatus === "timer" ? (
     <div className="flex flex-col items-center gap-6 xl:flex-row xl:justify-center xl:items-start">
-      <div className="flex flex-col gap-6 justify-center items-center w-full max-w-[50rem]">
+      <div className="flex flex-col gap-4 sm:gap-6 justify-center items-center w-full max-w-200">
         <div className="flex justify-between items-center w-full relative">
           {eventAlertType === RIGHT_ANSWER_ALERT ? (
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-success opacity-85 text-text-reverse rounded-md px-4 py-2 line-clamp-2">
@@ -1076,8 +1087,8 @@ export default function Game({ loaderData }: Route.ComponentProps) {
             </div>
           </div>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 w-full justify-items-center items-center gap-6">
-          <div className="bg-target-card flex flex-col items-center justify-center w-[min(max(55%,20rem),100%)] aspect-[2/1] md:aspect-[3/2] dark:border-border-muted shadow rounded-2xl">
+        <div className="grid grid-cols-1 md:grid-cols-3 w-full justify-items-center items-center gap-4 sm:gap-6">
+          <div className="bg-target-card flex flex-col items-center justify-center w-[min(max(55%,16rem),100%)] aspect-2/1 md:aspect-3/2 dark:border-border-muted shadow rounded-2xl">
             <div className="text-2xl sm:max-md:text-3xl font-semibold">
               Target
             </div>
@@ -1095,6 +1106,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
               value={answer}
               onChange={(e) => setAnswer(e.target.value)}
               onKeyDown={handleInputKeyDown}
+              onBeforeInput={handleBeforeInput}
               placeholder="Enter math expression..."
               disabled={gameStatus !== "playing"}
             />
@@ -1108,7 +1120,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
               </Button>
               <Button
                 onClick={() => changeSkipStatus(!wantsToSkip)}
-                className="bg-background-light border-1 border-border hover:bg-background-light hover:opacity-90 hover:cursor-pointer active:opacity-80"
+                className="bg-background-light border border-border hover:bg-background-light hover:opacity-90 hover:cursor-pointer active:opacity-80"
                 disabled={gameStatus !== "playing"}
               >
                 {wantsToSkip ? "Cancel Skip" : "Request Skip"}
@@ -1117,8 +1129,8 @@ export default function Game({ loaderData }: Route.ComponentProps) {
           </>
         ) : null}
       </div>
-      <div className="flex flex-col xl:ml-12 gap-6 w-full xl:w-sm max-w-[50rem]">
-        <h2 className="flex text-2xl sm:text-3xl h-[54px] items-center">
+      <div className="flex flex-col xl:ml-12 gap-6 w-full xl:w-sm max-w-200">
+        <h2 className="flex text-2xl sm:text-3xl h-13.5 items-center">
           Players ({Object.keys(players).length}/{game.max_players})
         </h2>
         <div className="flex flex-col gap-6">
@@ -1138,7 +1150,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
                   </div>
                 )}
               </div>
-              <div className="flex flex-col justify-center px-4 flex-grow">
+              <div className="flex flex-col justify-center px-4 grow">
                 <div className="text-lg font-medium">
                   {player.nickname ?? `Players-${userId.slice(0, 5)}`}
                   {userId === currentPlayerIDRef.current ? " (You)" : ""}
@@ -1161,8 +1173,8 @@ export default function Game({ loaderData }: Route.ComponentProps) {
     </div>
   ) : (
     <div className="flex flex-col items-center gap-6 xl:flex-row xl:justify-center xl:items-start">
-      <div className="flex flex-col xl:ml-12 gap-6 w-full max-w-[32rem]">
-        <h2 className="flex text-2xl sm:text-3xl h-[54px] items-center">
+      <div className="flex flex-col xl:ml-12 gap-6 w-full max-w-lg">
+        <h2 className="flex text-2xl sm:text-3xl h-13.5 items-center">
           Game Over!
         </h2>
         <div className="flex flex-col gap-6">
@@ -1171,7 +1183,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
               key={userId}
               className="flex w-full rounded-2xl items-center md:relative"
             >
-              <div className="flex items-center justify-center text-4xl md:absolute md:left-[-3rem] mr-6 max-md:[font-variant-numeric:tabular-nums]">
+              <div className="flex items-center justify-center text-4xl md:absolute md:-left-12 mr-6 max-md:[font-variant-numeric:tabular-nums]">
                 {rank}
               </div>
               <div>
@@ -1188,14 +1200,14 @@ export default function Game({ loaderData }: Route.ComponentProps) {
                   </div>
                 )}
               </div>
-              <div className="flex flex-col justify-center px-4 flex-grow">
+              <div className="flex flex-col justify-center px-4 grow">
                 <div className="text-lg font-medium truncate">
                   {player.nickname ?? `Players-${userId.slice(0, 5)}`}
                   {userId === currentPlayerIDRef.current ? " (You)" : ""}
                   {userId === game.host_id ? " (Host)" : ""}
                 </div>
               </div>
-              <div className="flex items-center font-semibold text-xl">
+              <div className="flex items-center font-semibold text-xl truncate">
                 {player.score} Points
               </div>
             </div>
@@ -1229,7 +1241,7 @@ function Card({
   }, []);
   return (
     <div
-      className={`bg-background-light flex justify-center items-center dark:border-border-muted dark:border-2 shadow dark:shadow-none grow-0 shrink-0 max-w-24 aspect-[4/4] rounded-2xl font-semibold text-5xl sm:max-md:text-6xl ${className}`}
+      className={`bg-background-light flex justify-center items-center dark:border-border-muted dark:border-2 shadow dark:shadow-none grow-0 shrink-0 max-w-24 aspect-square rounded-2xl font-semibold text-5xl sm:max-md:text-6xl ${className}`}
       style={{ flexBasis: `calc(${100 / cols}% - ${gapAccount}%)` }}
       {...props}
     >

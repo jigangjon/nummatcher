@@ -31,7 +31,9 @@ export const ALL_OPERATOR_SYMBOLS = [
   "+",
   "-",
   "*",
+  "×",
   "/",
+  "÷",
   "^",
   "**",
   "!",
@@ -48,7 +50,7 @@ export const ALL_OPERATOR_SYMBOLS = [
 ];
 
 export const PREFIXES = ["+", "-"];
-export const INFIXES = ["+", "-", "*", "/", "^", "**", "p", "c"];
+export const INFIXES = ["+", "-", "*", "×", "/", "÷", "^", "**", "p", "c"];
 export const POSTFIXES = ["!", "!!"];
 export const FUNCTIONS = ["sqrt", "root"];
 
@@ -128,7 +130,9 @@ const OPERATOR_TOKEN_MAP: Record<string, () => Token> = {
   "+": () => operatorToken("+", 10, prefixNud(20), infixLed(10)),
   "-": () => operatorToken("-", 10, prefixNud(20), infixLed(10)),
   "*": () => operatorToken("*", 20, undefined, infixLed(20)),
+  "×": () => operatorToken("*", 20, undefined, infixLed(20)),
   "/": () => operatorToken("/", 20, undefined, infixLed(20)),
+  "÷": () => operatorToken("/", 20, undefined, infixLed(20)),
   "^": () => operatorToken("^", 30, undefined, infixLed(29)), // right associative
   "**": () => operatorToken("^", 30, undefined, infixLed(29)), // right associative
   "!": () => operatorToken("!", 50, undefined, postfixLed()),

@@ -1,6 +1,6 @@
 // (), [] allowed by default
 // () and [] are the same, so (3+5] is valid
-// +, -, *, /, !, ^(**), sqrt, nthroot, concat, !!, P, C, decimal, unary -
+// +, -, *(×), /(÷), !, ^(**), sqrt, nthroot, concat, !!, P, C, decimal, unary -
 // whitespaces ignored, case insensitive
 // sqrt allowed without parentheses or whitespaces (sqrt9)
 // unary - allowed without parentheses (-5)
