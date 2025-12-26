@@ -140,6 +140,11 @@ export default function Game({ loaderData }: Route.ComponentProps) {
   const NEW_ROUND_EVENT = "new-round";
   const GAME_OVER_EVENT = "game-over";
 
+  const RIGHT_ANSWER_ALERT = "right-answer";
+  const WRONG_ANSWER_ALERT = "wrong-answer";
+  const SKIP_ROUND_ALERT = "skip-round";
+  const NEW_ROUND_ALERT = "new-round";
+
   useEffect(() => {
     if (gameStatusRef.current === "canceled") return;
 
@@ -526,6 +531,17 @@ export default function Game({ loaderData }: Route.ComponentProps) {
     const { round, roundStartedAt, numbers, target, complexity } = data;
     updateRound(round, roundStartedAt, numbers, target, complexity);
 
+    setEventAlertType(SKIP_ROUND_ALERT);
+    setEventAlertMessage(`Round skipped`);
+    if (alertTimeoutRef.current !== null) {
+      clearTimeout(alertTimeoutRef.current);
+    }
+    alertTimeoutRef.current = window.setTimeout(() => {
+      setEventAlertType(null);
+      setEventAlertMessage(null);
+      alertTimeoutRef.current = null;
+    }, 2000);
+
     const updatedPlayers: PlayerStates = {};
     for (const [playerId, playerInfo] of Object.entries(playersRef.current)) {
       updatedPlayers[playerId] = {
@@ -545,6 +561,18 @@ export default function Game({ loaderData }: Route.ComponentProps) {
   async function handleNewRoundEvent(data: GameState) {
     const { round, roundStartedAt, numbers, target, complexity } = data;
     updateRound(round, roundStartedAt, numbers, target, complexity);
+
+    setEventAlertType(NEW_ROUND_ALERT);
+    setEventAlertMessage(`New round started`);
+    if (alertTimeoutRef.current !== null) {
+      clearTimeout(alertTimeoutRef.current);
+    }
+    alertTimeoutRef.current = window.setTimeout(() => {
+      setEventAlertType(null);
+      setEventAlertMessage(null);
+      alertTimeoutRef.current = null;
+    }, 2000);
+
     const updatedPlayers: PlayerStates = {};
     for (const [playerId, playerInfo] of Object.entries(playersRef.current)) {
       updatedPlayers[playerId] = {
@@ -568,7 +596,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
         ? "You"
         : playersRef.current[submitterId].nickname ||
           `Player-${submitterId.substring(0, 5)}`;
-    setEventAlertType("right-answer");
+    setEventAlertType(RIGHT_ANSWER_ALERT);
     setEventAlertMessage(`${displayName} won the round! +${points} points`);
     if (alertTimeoutRef.current !== null) {
       clearTimeout(alertTimeoutRef.current);
@@ -610,7 +638,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
     const message = value
       ? `Wrong answer, evaluated to ${value.toString()}`
       : error!;
-    setEventAlertType("wrong-answer");
+    setEventAlertType(WRONG_ANSWER_ALERT);
     setEventAlertMessage(message);
     if (alertTimeoutRef.current !== null) {
       clearTimeout(alertTimeoutRef.current);
@@ -791,6 +819,25 @@ export default function Game({ loaderData }: Route.ComponentProps) {
     playersRef.current = updatedPlayers;
     setPlayers(updatedPlayers);
   }
+  function sortPlayersByScoreWithTies(players: PlayerStates) {
+    type RankedPlayer = [
+      playerId: string,
+      playerInfo: (typeof players)[string],
+      rank: number,
+    ];
+    let lastScore: number;
+    let currentRank = 0;
+    const sortedPlayers = [...Object.entries(players)]
+      .sort(([, aPlayer], [, bPlayer]) => bPlayer.score - aPlayer.score)
+      .map<RankedPlayer>(([playerId, playerInfo], index) => {
+        if (playerInfo.score !== lastScore) {
+          currentRank = index + 1;
+          lastScore = playerInfo.score;
+        }
+        return [playerId, playerInfo, currentRank];
+      });
+    return sortedPlayers;
+  }
 
   async function copyGameLink() {
     const gameLink = `${window.location.origin}/game/${game.id}`;
@@ -865,6 +912,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
     setIsJoined(true);
   }
   function submitAnswer() {
+    if (isJoined === false) return;
     gameChannelRef.current?.send({
       type: "broadcast",
       event: ANSWER_SUBMIT_EVENT,
@@ -875,6 +923,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
     });
   }
   async function changeSkipStatus(status: boolean) {
+    if (isJoined === false) return;
     setWantsToSkip(status);
     gameChannelRef.current?.send({
       type: "broadcast",
@@ -977,6 +1026,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
                 <div className="flex flex-col justify-center px-4 flex-grow">
                   <div className="text-lg font-medium">
                     {player.nickname ?? `Player-${userId.slice(0, 5)}`}
+                    {userId === currentPlayerIDRef.current ? " (You)" : ""}
                     {userId === game.host_id ? " (Host)" : ""}
                     {player.active ? "" : " (Disconnected)"}
                   </div>
@@ -996,12 +1046,17 @@ export default function Game({ loaderData }: Route.ComponentProps) {
     <div className="flex flex-col items-center gap-6 xl:flex-row xl:justify-center xl:items-start">
       <div className="flex flex-col gap-6 justify-center items-center w-full max-w-[50rem]">
         <div className="flex justify-between items-center w-full relative">
-          {eventAlertType === "right-answer" ? (
+          {eventAlertType === RIGHT_ANSWER_ALERT ? (
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-success opacity-85 text-text-reverse rounded-md px-4 py-2 line-clamp-2">
               {eventAlertMessage}
             </div>
-          ) : eventAlertType === "wrong-answer" ? (
+          ) : eventAlertType === WRONG_ANSWER_ALERT ? (
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-warning opacity-85 text-text-reverse rounded-md px-4 py-2 line-clamp-2">
+              {eventAlertMessage}
+            </div>
+          ) : eventAlertType === SKIP_ROUND_ALERT ||
+            eventAlertType === NEW_ROUND_ALERT ? (
+            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-info opacity-85 text-text-reverse rounded-md px-4 py-2 line-clamp-2">
               {eventAlertMessage}
             </div>
           ) : null}
@@ -1045,31 +1100,35 @@ export default function Game({ loaderData }: Route.ComponentProps) {
           </div>
           <CardGrid numbers={gameState.numbers} />
         </div>
-        <Input
-          ref={inputRef}
-          type="text"
-          value={answer}
-          onChange={(e) => setAnswer(e.target.value)}
-          onKeyDown={handleInputKeyDown}
-          placeholder="Enter math expression..."
-          disabled={gameStatus !== "playing"}
-        />
-        <div className="flex w-full justify-start gap-2">
-          <Button
-            onClick={submitAnswer}
-            className="bg-background-reverse text-text-reverse hover:bg-background-reverse hover:opacity-90 hover:cursor-pointer active:opacity-80"
-            disabled={gameStatus !== "playing"}
-          >
-            Submit Answer
-          </Button>
-          <Button
-            onClick={() => changeSkipStatus(!wantsToSkip)}
-            className="bg-background-light border-1 border-border hover:bg-background-light hover:opacity-90 hover:cursor-pointer active:opacity-80"
-            disabled={gameStatus !== "playing"}
-          >
-            {wantsToSkip ? "Cancel Skip" : "Request Skip"}
-          </Button>
-        </div>
+        {isJoined ? (
+          <>
+            <Input
+              ref={inputRef}
+              type="text"
+              value={answer}
+              onChange={(e) => setAnswer(e.target.value)}
+              onKeyDown={handleInputKeyDown}
+              placeholder="Enter math expression..."
+              disabled={gameStatus !== "playing"}
+            />
+            <div className="flex w-full justify-start gap-2">
+              <Button
+                onClick={submitAnswer}
+                className="bg-background-reverse text-text-reverse hover:bg-background-reverse hover:opacity-90 hover:cursor-pointer active:opacity-80"
+                disabled={gameStatus !== "playing"}
+              >
+                Submit Answer
+              </Button>
+              <Button
+                onClick={() => changeSkipStatus(!wantsToSkip)}
+                className="bg-background-light border-1 border-border hover:bg-background-light hover:opacity-90 hover:cursor-pointer active:opacity-80"
+                disabled={gameStatus !== "playing"}
+              >
+                {wantsToSkip ? "Cancel Skip" : "Request Skip"}
+              </Button>
+            </div>
+          </>
+        ) : null}
       </div>
       <div className="flex flex-col xl:ml-12 gap-6 w-full xl:w-sm max-w-[50rem]">
         <h2 className="flex text-2xl sm:text-3xl h-[54px] items-center">
@@ -1095,6 +1154,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
               <div className="flex flex-col justify-center px-4 flex-grow">
                 <div className="text-lg font-medium">
                   {player.nickname ?? `Players-${userId.slice(0, 5)}`}
+                  {userId === currentPlayerIDRef.current ? " (You)" : ""}
                   {userId === game.host_id ? " (Host)" : ""}
                   {player.active ? "" : " (Disconnected)"}
                 </div>
@@ -1119,41 +1179,40 @@ export default function Game({ loaderData }: Route.ComponentProps) {
           Game Over!
         </h2>
         <div className="flex flex-col gap-6">
-          {[...Object.entries(players)]
-            .sort(([, aPlayer], [, bPlayer]) => bPlayer.score - aPlayer.score)
-            .map(([userId, player], index) => (
-              <div
-                key={userId}
-                className="flex w-full rounded-2xl items-center md:relative"
-              >
-                <div className="flex items-center justify-center text-4xl md:absolute md:left-[-3rem] mr-6 max-md:[font-variant-numeric:tabular-nums]">
-                  {index + 1}
-                </div>
-                <div>
-                  {player.avatarUrl ? (
-                    <img
-                      className="rounded-full w-14 aspect-square"
-                      src={player.avatarUrl}
-                      alt={player.nickname ?? `Players-${userId.slice(0, 5)}`}
-                    />
-                  ) : (
-                    <div className="flex items-center justify-center rounded-full w-14 aspect-square text-3xl bg-gray-300 dark:bg-gray-600">
-                      {player.nickname?.slice(0, 2).toUpperCase() ??
-                        userId.slice(0, 2).toUpperCase()}
-                    </div>
-                  )}
-                </div>
-                <div className="flex flex-col justify-center px-4 flex-grow">
-                  <div className="text-lg font-medium truncate">
-                    {player.nickname ?? `Players-${userId.slice(0, 5)}`}
-                    {userId === game.host_id ? " (Host)" : ""}
+          {sortPlayersByScoreWithTies(players).map(([userId, player, rank]) => (
+            <div
+              key={userId}
+              className="flex w-full rounded-2xl items-center md:relative"
+            >
+              <div className="flex items-center justify-center text-4xl md:absolute md:left-[-3rem] mr-6 max-md:[font-variant-numeric:tabular-nums]">
+                {rank}
+              </div>
+              <div>
+                {player.avatarUrl ? (
+                  <img
+                    className="rounded-full w-14 aspect-square"
+                    src={player.avatarUrl}
+                    alt={player.nickname ?? `Players-${userId.slice(0, 5)}`}
+                  />
+                ) : (
+                  <div className="flex items-center justify-center rounded-full w-14 aspect-square text-3xl bg-gray-300 dark:bg-gray-600">
+                    {player.nickname?.slice(0, 2).toUpperCase() ??
+                      userId.slice(0, 2).toUpperCase()}
                   </div>
-                </div>
-                <div className="flex items-center font-semibold text-xl">
-                  {player.score} Points
+                )}
+              </div>
+              <div className="flex flex-col justify-center px-4 flex-grow">
+                <div className="text-lg font-medium truncate">
+                  {player.nickname ?? `Players-${userId.slice(0, 5)}`}
+                  {userId === currentPlayerIDRef.current ? " (You)" : ""}
+                  {userId === game.host_id ? " (Host)" : ""}
                 </div>
               </div>
-            ))}
+              <div className="flex items-center font-semibold text-xl">
+                {player.score} Points
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </div>

@@ -63,7 +63,7 @@ body {
   --danger: oklch(0.577 0.22 27.325);
   --warning: oklch(0.5 0.1 100);
   --success: oklch(0.5 0.1 160);
-  --info: oklch(0.6 0.17 162.48);
+  --info: oklch(0.5 0.05 260);
   --target-card: oklch(0.97 0.07 103);
 }
 
