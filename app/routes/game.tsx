@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { Route } from "./+types/game";
 import type {
   RealtimeChannel,
+  RealtimePostgresInsertPayload,
   RealtimePostgresUpdatePayload,
   RealtimePresenceState,
 } from "@supabase/supabase-js";
@@ -243,7 +244,7 @@ export default function Game({ loaderData }: Route.ComponentProps) {
           filter: `game_id=eq.${game.id}`,
         },
         (
-          payload: RealtimePostgresUpdatePayload<
+          payload: RealtimePostgresInsertPayload<
             Tables<"anonymous-game-players">
           >
         ) => {
